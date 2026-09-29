@@ -1,0 +1,235 @@
+/* Booth-only controls: reader status, dataset/stop pickers, connection editor. */
+
+.reader-panel {
+  background: var(--container-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.reader-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.reader-status-text {
+  display: flex;
+  flex-direction: column;
+  margin-right: auto;
+}
+
+.reader-status-text span {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  flex: 0 0 auto;
+}
+
+.status-dot.status-listening {
+  background: var(--status-on-time);
+  box-shadow: 0 0 0 4px rgba(0, 200, 83, 0.2);
+}
+
+.status-dot.status-connecting {
+  background: #e8b966;
+}
+
+.status-dot.status-error {
+  background: var(--status-delayed);
+}
+
+.reader-panel-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.reader-panel button {
+  background: var(--header-bg);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.45rem 0.8rem;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.reader-panel button:hover:not(:disabled) {
+  border-color: var(--accent-color);
+}
+
+.reader-panel button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.reader-panel button.primary {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  color: #fff;
+}
+
+.reader-panel button.danger {
+  border-color: var(--status-delayed);
+  color: var(--status-delayed);
+}
+
+.reader-panel button.link {
+  background: none;
+  border: none;
+  color: var(--accent-color);
+  text-decoration: underline;
+  padding: 0 0 0 0.4rem;
+}
+
+.reader-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+}
+
+.reader-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.reader-field label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.reader-field input,
+.reader-field select {
+  background: var(--bg-color);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 0.45rem 0.5rem;
+  font: inherit;
+  font-size: 0.9rem;
+  min-width: 0;
+}
+
+.reader-field-note {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.reader-field code {
+  background: var(--bg-color);
+  padding: 0 0.25rem;
+  border-radius: 3px;
+}
+
+.reader-inline {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.reader-inline input {
+  flex: 1 1 auto;
+}
+
+.reader-meta-row {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--item-border);
+  padding-top: 0.7rem;
+}
+
+.reader-ok {
+  color: var(--status-on-time);
+  font-size: 0.85rem;
+}
+
+/* Transient: the tap is safe in the outbox and will be retried. */
+.reader-warn {
+  color: var(--status-queued);
+  font-size: 0.85rem;
+}
+
+/* Permanent: the operator has to change the connection before anything can be written. */
+.reader-error {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--status-delayed);
+}
+
+/* An inline escape hatch inside a status line, so it must not read as a form button. */
+.reader-panel button.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.reader-note {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.reader-details {
+  border-top: 1px solid var(--item-border);
+  padding-top: 0.7rem;
+}
+
+.reader-details summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.reader-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.reader-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+}
+
+.reader-transfer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+  align-items: flex-start;
+}
+
+.reader-transfer textarea {
+  width: 100%;
+  background: var(--bg-color);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  padding: 0.5rem;
+  resize: vertical;
+}

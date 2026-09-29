@@ -1,0 +1,124 @@
+/* Live tap counts: the per-row pill and the kiosk's predicted-vs-live card. */
+
+.live-count-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  background: var(--accent-color);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.3rem 0.45rem;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.next-bus-card {
+  background: var(--container-bg);
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--accent-color);
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.next-bus-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.next-bus-kicker {
+  margin: 0 0 0.15rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.next-bus-title {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+.next-bus-destination {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.next-bus-countdown {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--accent-color);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.next-bus-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.next-bus-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.figure-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.figure-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  color: #14181f;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  min-height: 3rem;
+}
+
+.figure-chip strong {
+  font-size: 2rem;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.next-bus-agreement {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-main);
+}
+
+.next-bus-updated {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+@media (max-width: 700px) {
+  .next-bus-compare {
+    grid-template-columns: 1fr;
+  }
+
+  .next-bus-title {
+    font-size: 1.5rem;
+  }
+}

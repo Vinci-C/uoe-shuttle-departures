@@ -1,0 +1,69 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Theme variables - Default Dark (University of Edinburgh) */
+  --bg-color: #041E42;
+  --container-bg: #0A2A5E;
+  --header-bg: #0F3470;
+  --header-text: #F5F5F5;
+  --header-text-muted: #B0B0B0;
+  --text-main: #f5f5f5;
+  --text-muted: #B0B0B0;
+  --text-dim: #8A9BB5;
+  --border-color: #1E4D8C;
+  --item-border: #143B75;
+  --accent-color: #D50032;
+  --accent-rgb: 213, 0, 50;
+  --status-on-time: #00C853;
+  --status-delayed: #ff3b30;
+  --status-queued: #e8a33d;
+}
+
+[data-theme='light'] {
+  --bg-color: #F5F5F5;
+  --container-bg: #FFFFFF;
+  --header-bg: #041E42;
+  --header-text: #FFFFFF;
+  --header-text-muted: #D4D4D4;
+  --text-main: #3A3A3A;
+  --text-muted: #747474;
+  --text-dim: #9EA8B5;
+  --border-color: #D4D4D4;
+  --item-border: #E8E8E9;
+  --accent-color: #D50032;
+  --accent-rgb: 213, 0, 50;
+  --status-on-time: #1a7a2e;
+  --status-delayed: #c53030;
+  --status-queued: #a86a10;
+}
+
+/* Accessible focus styles */
+:focus-visible {
+  outline: 3px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  transition: background-color 0.3s ease, color 0.3s ease;
+  overflow-x: hidden;
+}
+
+h1 {
+  line-height: 1.1;
+}
