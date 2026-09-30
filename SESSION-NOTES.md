@@ -98,6 +98,45 @@ on the free plan private repos cannot serve Pages, so that ends the public board
 
 ---
 
+## The first successful deploy shipped a dead board
+
+Publishing it caught a bug that three separate gates had all passed.
+
+The first deploy **succeeded** — green CI, live URL, HTTP 200 on both pages. It was also
+useless. Vite inlines `import.meta.env` at build time, and `VITE_SUPABASE_URL` /
+`VITE_SUPABASE_ANON_KEY` existed only in the gitignored `.env.local`. So on the runner
+both were `undefined`, and the deployed bundle contained no Supabase connection at all:
+
+- the page rendered and the timetable worked
+- there were no live tap counts
+- there were no requests to Supabase whatsoever
+
+Nothing failed. `tsc`, `eslint`, and `verify:identity` all passed, because none of them
+look at build *output*. The green pipeline was actively misleading.
+
+This is the second time in this project that a **stale or wrong artifact** caused the
+real problem, and the pattern is worth naming: the first was the request loop, where a
+dev server was serving code that had already changed. Here it was a CI build with no
+config. In both cases the code on disk was correct and the thing being *served* was not.
+Only looking at the served bytes — or at the network tab — would have caught either.
+
+**The fix.** `.env` is now committed and holds the project URL, publishable key, and
+dataset. That is safe, and it is the intended mechanism: the publishable key is public by
+design (it replaces the old `anon` JWT, which was equally public and equally RLS-scoped)
+and ships in the bundle regardless. The ingest token remains the one value that is never
+in a file, because leaking it lets anyone forge taps.
+
+**The gate.** `npm run verify:bundle` asserts the built output actually contains the
+project URL and publishable key, and that no `x-boarding-token` literal is inlined. It
+runs in CI after `npm run build`. Tested by stripping the URL out of `dist` and confirming
+exit 1.
+
+The lesson for the remaining todos: a passing check only means something if it asserts the
+property you actually care about. Three of them asserted the code was well-formed, and the
+thing that was broken was whether the output was configured.
+
+---
+
 ## What is and is not public
 
 Audited 30 Sep 2026, across all 48 tracked files and the single commit.
