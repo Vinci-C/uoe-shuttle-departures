@@ -164,7 +164,13 @@ export function isPermanentWriteError(error?: WriteErrorLike | null): boolean {
   return PERMANENT_TEXT.some((needle) => text.includes(needle));
 }
 
-/** Random 8-hex id so "Simulate tap" behaves like a real card in the UI. */
+/**
+ * Random 8-hex id so "Simulate tap" behaves like a real card in the UI.
+ *
+ * Lowercase, to match the sketch's `%08lx` output. These were uppercase until the
+ * firmware path was first exercised, which would have left the table with two casings
+ * of the same field and made a real tap impossible to pick out by eye.
+ */
 export function randomCardId(): string {
   const bytes = new Uint8Array(4);
   if (typeof crypto !== "undefined" && "getRandomValues" in crypto) {
@@ -172,7 +178,7 @@ export function randomCardId(): string {
   } else {
     for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
   }
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function readOutbox(): OutboxEntry[] {

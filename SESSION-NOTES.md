@@ -4,6 +4,9 @@ Written 30 Sep 2026. Covers the security work and the request-loop investigation
 Everything described here is committed in `7d2a2ed first commit` on `main`, working
 tree clean, pushed to `https://github.com/Vinci-C/uoe-shuttle-departures`.
 
+Later sessions append below, newest last: see **Hardware bring-up, 30 Sep 2026** for
+the card reader, the shuttle-only attribution fix, and two new CI guards.
+
 ---
 
 ## Where things stand
@@ -892,3 +895,136 @@ pass. Confirmed in the built chunk that the new evening times are present and th
 | `supabase/schema.sql` | tables, RLS, token function, publication, seed guard |
 | `scripts/verify-connection-identity.ts` | referential-stability guard |
 | `card reader/BoothReader/BoothReader.ino` | Arduino firmware |
+
+---
+
+## Hardware bring-up, 30 Sep 2026
+
+Picking up the card reader. Nothing about the reader needed building — the chain from
+`BoothReader.ino` through Web Serial to Supabase has been wired for a while. What was
+missing was validation, and one bug that only a real stream would have exposed.
+
+### The board is connected but has never been flashed
+
+The board is physically attached and enumerates fine:
+
+- `/dev/cu.usbmodem113301`, USB VID:PID **`2341:0411`**, serial `03536373232351306182`.
+- Reading it for 6s at 115200 returns **0 bytes**. Nothing is running on it.
+- **No Arduino toolchain on this machine at all**: no Arduino IDE in `/Applications`, no
+  `arduino-cli` on `PATH`, no `~/Library/Arduino15`. So it has not been flashed because
+  there was no way to flash it, not because the upload was skipped.
+
+`2341` is Arduino's official vendor id, so this is not a CH340 clone. The sketch comment
+says *Arduino UNO R3* and `README.md` had claimed the configuration was "verified on the
+bench", which was never true — both are corrected. The exact board matters because the
+sketch has to compile for whatever core it is, and `2341:0411` is a native-USB part
+rather than the ATmega328P/16U2 combination the comment describes. **The board type
+still needs confirming before the first upload.**
+
+### The attribution bug was much worse than estimated
+
+Earlier in this work the misattribution was estimated at 72% of Bristo's shuttle window
+and 27% of Kings Buildings'. That was measured against the *old* Lothian 9 timetable.
+After `bba8d28` synced the 9 to `ai expo` — 52 departures per direction, a far denser
+evening pattern — the exposure got worse, not better:
+
+| Stop | In-window taps that landed on a 9 | Share |
+| --- | --- | --- |
+| Bristo Square | 899 of 1074 | **84%** |
+| Kings Buildings | 680 of 1136 | **60%** |
+
+The 9 sync, which was correct on its own terms, made this bug considerably more likely to
+be seen. Worth remembering: two correct changes can multiply.
+
+Fixed as planned. `buildServiceWindows` is now `buildShuttleWindows` and returns shuttle
+departures only; `attributeBoardings` buckets by stop and ignores `row.service_kind`;
+`KioskView` hardcodes `service_kind: "shuttle"`. The schema still permits `bus9` so
+existing rows stay valid, and the 9 keeps its own cards and timetable on the board.
+
+**The database already contained the damage**: ~37 rows from a 22:35 session on 29 Sep
+carry `service_kind = "bus9"`, written by Simulate tap through the buggy window logic.
+They now re-attribute to the shuttle on read. No row in the table resolves to a 9.
+
+### A real bug in the serial framing, found by the new guard
+
+Writing `verify:reader` surfaced this immediately. `readScans`'s pump did:
+
+```ts
+while (!stopped) {
+  const stream = port.readable;
+  if (!stream) break;
+  activeReader = stream.getReader();   // <- outside the try
+  try { ... if (done) break; ... } catch { ... }
+}
+```
+
+When a stream ends cleanly the inner loop breaks, the outer `while` is still true, and
+`getReader()` is called again on a stream that is still **locked** — because the previous
+reader was never released. That throws `ERR_INVALID_STATE` / "ReadableStream is locked",
+and because the call sits outside the `try`, it escapes as an **unhandled promise
+rejection**. The reader dies with no error in the panel and no log.
+
+It never fired in testing because nothing had ever run a real stream. In a browser the
+loop only survives if `port.readable` goes null, which happens on unplug — so this would
+have surfaced as "the reader stopped counting taps after the USB stack reset the stream,
+and the panel still said it was listening."
+
+The pump now releases the lock in a `finally` and returns once the stream ends or a read
+fails, leaving reconnection to `useReader`. A finished or failed stream cannot produce
+another read, so retrying could only re-lock or spin.
+
+### Reader changes
+
+- **Firmware handshake.** `status: "listening"` was set on a successful `port.open()`,
+  which succeeds even when no sketch is running — so a board that was never flashed read
+  as healthy. Now `connecting` → `awaiting` → `listening`, where `listening` requires an
+  actual line from the sketch, and the firmware version is shown. *Any* well-formed line
+  counts, not just the boot `ready`, because opening the port does not always reset an
+  UNO and a board already running would otherwise be stranded in `awaiting` forever.
+- **Replug recovery.** `getGrantedPorts()` ran on mount only, and there was a disconnect
+  handler but nothing watching for the port to return, so a yanked cable needed an
+  operator click. Now polls every 2s for 2 minutes and re-attaches by USB id (Web Serial
+  hands back a *new* `SerialPort` object, so identity comparison is useless).
+- **`card_id` validation.** `event.uid` went straight into the database. Now requires 8
+  hex characters and is lowercased; anything else is dropped with a visible warning.
+- **Casing.** `randomCardId()` returned uppercase while the sketch emits lowercase, so
+  the table would have had two casings of one field. `randomCardId` is now lowercase and
+  real taps are lowercased. The ~74 existing uppercase ids are all Simulate tap rows.
+
+### Two new CI guards
+
+Both are offline and deterministic, and both were added because the failure they catch is
+a *wrong number on a board* rather than an error:
+
+- `npm run verify:attribution` — walks every minute of a day at both stops, asserts no
+  tap can resolve to a 9, that every shuttle departure is reachable, that taps after the
+  last departure are reported unassigned, and that legacy `bus9` rows re-attribute.
+- `npm run verify:reader` — checks every key the sketch can emit is understood by the web
+  `ScanEvent`, that the sketch's debounce is the 10s the docs claim, that `%08lx` output
+  satisfies the web's card-id pattern, and replays the sketch's documented transcript —
+  split mid-line, with a garbage line — through the real `readScans`. This is what found
+  the locking bug above.
+
+`npm run check:taps` is the local, networked counterpart: it reads the last day of rows
+with the publishable key (no token, nothing written), re-resolves each through the
+production attribution rule, and flags misattribution, malformed ids, uppercase legacy
+ids, debounce violations, and taps after the last shuttle. **This is the objective check
+for the first real tap** — a command rather than an eyeball.
+
+Once the board is flashed, `verify:reader`'s synthetic transcript should be replaced with
+a real capture checked into `card reader/transcripts/`.
+
+### Bench checklist, not yet done
+
+1. Install the Arduino IDE or `ardino-cli`, and the *Seeed Arduino NFC* library from
+   [`card reader/Seeed_Arduino_NFC-master.zip`](../card%20reader/).
+2. Confirm the board type from `2341:0411`, select it, and upload `BoothReader.ino`.
+3. Serial Monitor at **115200**; tap a tag. Want to see `ready`, and what
+   `tag.getUidLength()` reports — 4 vs 7 bytes changes the hash input.
+4. Save that capture to `card reader/transcripts/` and point `verify:reader` at it.
+5. `/kiosk.html` in Chrome or Edge, pick dataset and stop, paste the ingest token
+   (the Connection panel verifies it before saving), **Connect reader**. Expect
+   *Port open, waiting…* then *Listening for taps* with a firmware version.
+6. Tap, then `npm run check:taps`.
+7. Rest the card on the reader for ~10s: exactly one row. Second tag: a second row.
+8. Wifi off → tap → queued → wifi on → flush: no duplicates, `tapped_at` preserved.

@@ -22,6 +22,23 @@ export interface ScanEvent {
 
 export const READER_BAUD_RATE = 115200;
 
+/**
+ * The sketch hashes the UID to 8 lowercase hex characters and nothing else writes
+ * `card_id` from a real reader, so a `uid` that does not match this is a malformed or
+ * foreign serial line rather than a tap. It is dropped rather than written, so a garbled
+ * read can never put an arbitrary string into the boardings table.
+ */
+export const TAP_CARD_ID_PATTERN = /^[0-9a-f]{8}$/i;
+
+/**
+ * Deliberately returns `boolean` rather than a type predicate: a `value is string`
+ * predicate narrows the *negative* branch of an already-`string` field to `never`, which
+ * makes the "log the bad value" path untypable.
+ */
+export function isTapCardId(value: unknown): boolean {
+  return typeof value === "string" && TAP_CARD_ID_PATTERN.test(value);
+}
+
 // Arduino (Uno/Nano/Mega), CH340 and FTDI boards — the usual USB-serial bridges.
 const VENDOR_FILTERS = [
   { usbVendorId: 0x2341 },
@@ -100,13 +117,20 @@ export function readScans(
   };
 
   const pump = async () => {
-    while (!stopped) {
+    for (;;) {
+      if (stopped) return;
       const stream = port.readable;
-      if (!stream) break;
-      activeReader = stream.getReader();
+      // No stream means the port is closed or gone. The reconnect path in useReader
+      // takes it from here.
+      if (!stream) return;
+
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+
       try {
+        reader = stream.getReader();
+        activeReader = reader;
         for (;;) {
-          const { value, done } = await activeReader.read();
+          const { value, done } = await reader.read();
           if (done) break;
           if (!value) continue;
           buffer += decoder.decode(value, { stream: true });
@@ -120,9 +144,25 @@ export function readScans(
         }
       } catch (err) {
         if (!stopped) onError?.(err instanceof Error ? err : new Error(String(err)));
+      } finally {
+        // Always hand the lock back. Leaving it held is what made the previous version
+        // throw "ReadableStream is locked" on its next pass -- an unhandled rejection,
+        // because getReader() sat outside the try, which killed the reader with no
+        // error shown anywhere.
+        try {
+          reader?.releaseLock();
+        } catch {
+          // Already released, or the stream is in a state that refuses it.
+        }
+        activeReader = null;
       }
+
+      // The session ends when the stream ends or the read fails, and deliberately does
+      // not loop. Neither case can produce another read from this stream, so retrying
+      // would either re-lock it or spin; reconnection is the caller's job, and it
+      // already handles an unplugged or reset shield.
+      return;
     }
-    activeReader = null;
   };
 
   void pump();

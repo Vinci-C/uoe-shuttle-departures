@@ -12,7 +12,7 @@ import { predictBusyness } from "../lib/runModel";
 import type { BusynessLevel } from "../lib/runModel";
 import { BUSYNESS_COLORS, BUSYNESS_LABELS } from "../lib/busyness";
 import { attributeBoardings } from "../lib/attribution";
-import { buildServiceWindows, makeServiceId } from "../lib/serviceId";
+import { buildShuttleWindows, makeServiceId } from "../lib/serviceId";
 import type { BoardingRow } from "../lib/boardings";
 import LiveCountPill from "./LiveCountPill";
 import "./DepartureBoard.css";
@@ -501,11 +501,11 @@ const DepartureBoard: React.FC<DepartureBoardProps> = ({
   // A tap belongs to the first departure from that stop at or after the tap, so each
   // bus starts counting from zero without anything having to reset it.
   const boardingsBristo = React.useMemo(
-    () => attributeBoardings(boardings, buildServiceWindows("bristo", overrideDate), overrideDate),
+    () => attributeBoardings(boardings, buildShuttleWindows("bristo", overrideDate), overrideDate),
     [boardings, overrideDate],
   );
   const boardingsKings = React.useMemo(
-    () => attributeBoardings(boardings, buildServiceWindows("kings", overrideDate), overrideDate),
+    () => attributeBoardings(boardings, buildShuttleWindows("kings", overrideDate), overrideDate),
     [boardings, overrideDate],
   );
 

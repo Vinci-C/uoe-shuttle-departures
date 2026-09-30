@@ -45,8 +45,24 @@
   background: #e8b966;
 }
 
+/* The port is open but the sketch has not spoken. Pulsing amber, because it is a
+   normal brief state on an UNO that resets when the port opens. */
+.status-dot.status-awaiting {
+  background: #e8b966;
+  animation: reader-awaiting-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes reader-awaiting-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
 .status-dot.status-error {
   background: var(--status-delayed);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot.status-awaiting { animation: none; }
 }
 
 .reader-panel-actions {
@@ -186,6 +202,19 @@
   margin: 0;
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+/* A problem the operator has to act on before the demo, as opposed to an FYI. */
+.reader-note-warn {
+  color: var(--status-delayed);
+  font-weight: 600;
+}
+
+.reader-note code {
+  font-size: 0.8rem;
+  background: rgba(var(--accent-rgb), 0.1);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
 }
 
 .reader-details {

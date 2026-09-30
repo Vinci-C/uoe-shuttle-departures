@@ -3,8 +3,6 @@ import type { ServiceKind } from "./boardings";
 import {
   BRISTO_SQUARE_DEPARTURES,
   KINGS_BUILDINGS_DEPARTURES,
-  BUS_9_TO_KB,
-  BUS_9_FROM_KB,
   type DepartureTime,
 } from "../data/timetable";
 import { londonDateKey } from "./londonTime";
@@ -31,7 +29,6 @@ export function makeServiceId(
 export interface ServiceWindow {
   serviceId: string;
   departureMinutes: number;
-  serviceKind: ServiceKind;
   stop: StopCode;
   displayTime: string;
   serviceLabel: string;
@@ -43,39 +40,40 @@ const SHUTTLE_BY_STOP: Record<StopCode, DepartureTime[]> = {
   kings: KINGS_BUILDINGS_DEPARTURES,
 };
 
-const BUS9_BY_STOP: Record<StopCode, DepartureTime[]> = {
-  bristo: BUS_9_TO_KB,
-  kings: BUS_9_FROM_KB,
-};
-
 const DIRECTION: Record<StopCode, string> = {
   bristo: "Kings Buildings",
   kings: "Bristo Square",
 };
 
 /**
- * Every departure of a day as a "board by this time" window. A tap belongs to the
- * first departure at or after it, which is what makes counts roll over per bus
+ * Every shuttle departure of a day as a "board by this time" window. A tap belongs to
+ * the first departure at or after it, which is what makes counts roll over per bus
  * without a reset job.
+ *
+ * SHUTTLE DEPARTURES ONLY, deliberately. The reader sits at the shuttle stand and the
+ * Lothian 9 leaves from a different stand, so a tap can only ever mean "boarding the
+ * shuttle". This used to interleave the 9 into the same window list, which let a tap be
+ * written against a 9 service and land on a 9 card: walking every minute of a day, 84%
+ * of Bristo's in-window taps and 60% of Kings Buildings' would have gone to the 9. The
+ * 9 still gets its own cards and timetable on the board, built straight from the
+ * BUS_9_* arrays -- it just never carries taps.
+ *
+ * Do not add 9 windows back here. The busyness model is only trained on shuttle
+ * departure times, so a prediction shown against a 9 would be a meaningless average.
  */
-export function buildServiceWindows(stop: StopCode, date: Date): ServiceWindow[] {
+export function buildShuttleWindows(stop: StopCode, date: Date): ServiceWindow[] {
   const windows: ServiceWindow[] = [];
 
-  const add = (kind: ServiceKind, schedule: DepartureTime[]) => {
-    for (const departure of schedule) {
-      windows.push({
-        serviceId: makeServiceId(kind, stop, date, departure.displayTime),
-        departureMinutes: hhmmToMinutes(departure.displayTime),
-        serviceKind: kind,
-        stop,
-        displayTime: departure.displayTime,
-        serviceLabel: kind === "shuttle" ? "University Shuttle" : "Lothian 9",
-        destination: departure.destination || DIRECTION[stop],
-      });
-    }
-  };
+  for (const departure of SHUTTLE_BY_STOP[stop]) {
+    windows.push({
+      serviceId: makeServiceId("shuttle", stop, date, departure.displayTime),
+      departureMinutes: hhmmToMinutes(departure.displayTime),
+      stop,
+      displayTime: departure.displayTime,
+      serviceLabel: "University Shuttle",
+      destination: departure.destination || DIRECTION[stop],
+    });
+  }
 
-  add("shuttle", SHUTTLE_BY_STOP[stop]);
-  add("bus9", BUS9_BY_STOP[stop]);
   return windows.sort((a, b) => a.departureMinutes - b.departureMinutes);
 }

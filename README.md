@@ -110,14 +110,22 @@ policy, so the plaintext token is never stored in the database.
 
 ## Card reader
 
-Hardware is a Seeed PN532 NFC Shield (SPI, chip select on pin 10) on an Arduino UNO,
-which is the configuration that was verified on the bench.
+Hardware is a Seeed PN532 NFC Shield (SPI, chip select on pin 10) on an Arduino UNO.
+
+**This has not been flashed yet.** As of 30 Sep 2026 the sketch had never been uploaded
+to a board, so the tap path below is verified by replaying the firmware's transcript
+through the real serial framing rather than by a card on real hardware. Every row in
+the database so far came from *Simulate tap*. `SESSION-NOTES.md` has the bench
+checklist and what was confirmed about the connected board.
 
 1. Copy the library into `~/Documents/Arduino/libraries` (or install *Seeed Arduino
    NFC* from the Library Manager). The reference zip is in
    [`card reader/`](card%20reader/).
 2. Open [`card reader/BoothReader/BoothReader.ino`](card%20reader/BoothReader/BoothReader.ino),
-   select the **Arduino UNO** board, and upload.
+   select the board matching your USB ids, and upload. The board seen on 30 Sep 2026
+   enumerated as `2341:0411` on `/dev/cu.usbmodem113301`, which is a native-USB Arduino
+   rather than the CH340 UNO R3 the sketch comment assumes; pick the board from the
+   actual hardware, and check the sketch compiles for that core.
 3. Open `/kiosk.html` in Chrome or Edge on the booth laptop and press **Connect
    reader**. Web Serial needs a secure context: `localhost` works during development,
    and the deployed Pages URL is HTTPS.
@@ -131,9 +139,29 @@ The firmware prints one JSON line per event at 115200 baud:
 {"v":1,"event":"error","code":1}          // no tag in the field
 ```
 
-The kiosk counts a line as a tap if it carries `uid`, and ignores the rest. The 10 second
-debounce is enforced on the board, so a card left resting on the reader is not counted
-twice, and `error` is only emitted once per transition rather than continuously.
+The kiosk counts a line as a tap if it carries `uid` of exactly 8 hex characters, and
+ignores the rest. The 10 second debounce is enforced on the board, so a card left resting
+on the reader is not counted twice, and `error` is only emitted once per transition
+rather than continuously. A `uid` that is not 8 hex characters is dropped with a visible
+warning rather than written to the database.
+
+The panel distinguishes three healthy-ish states, because opening a serial port that no
+sketch is using still succeeds — a board that was never flashed reads as healthy at that
+layer, and used to show "Listening for taps" until somebody tapped:
+
+| State | Meaning |
+| --- | --- |
+| Opening serial port… | the picker was accepted and the port is opening |
+| Port open, waiting for the reader to report in | port is open, no firmware line seen yet. Normal for a second or two: opening the port resets an UNO, so the boot line arrives after the reboot |
+| Listening for taps | the sketch has spoken, and its firmware version is shown next to the port |
+
+If it stays in *waiting*, the sketch is not running. Any well-formed line counts as proof
+of firmware, not just the boot `ready`, so a board that was already running before the
+port opened does not get stranded.
+
+Unplugging the shield says so and the panel polls for it to come back, re-attaching by
+USB id for two minutes, so a yanked cable recovers without the operator pressing
+anything.
 
 NTAG213 or NTAG215 stickers are the reliable demo tokens; the reader is not fussy
 about the card format, but cheap random cards are not reliably readable.
@@ -203,18 +231,48 @@ a new unstable source, so keep the rule in mind when adding one.
 named `uoe-shuttle-departures`. For a custom domain, change `base` in
 `vite.config.ts`.
 
+## Checks
+
+Four guards run in CI, and one command is for the bench. They exist because each of
+these bugs produced a board that looked fine.
+
+| Command | Fails when |
+| --- | --- |
+| `npm run lint` | ordinary lint |
+| `npm run verify:identity` | a connection object stops being referentially stable, which reproduced the render/fetch loop that once made tens of thousands of requests a day |
+| `npm run verify:attribution` | a tap could resolve to a Lothian 9 service instead of a shuttle. Walks every minute of a day at both stops |
+| `npm run verify:reader` | the Arduino sketch and the web reader disagree about the protocol. Replays the sketch's transcript, split mid-line, through the real `readScans` |
+| `npm run verify:bundle` | the built bundle has no Supabase connection baked in |
+| `npm run check:taps` | *local only, needs network.* Prints the last day of taps and flags anything misattributed, malformed, or debounced twice. This is the objective check for a real tap |
+
+## Taps are shuttle boardings only
+
+A tap means "boarding the shuttle", always. The reader sits at the shuttle stand and
+the 9 leaves from a different stand, and the busyness model is only trained on shuttle
+departure times, so a count against a 9 would be both wrong and meaningless.
+
+So the windows taps are attributed against are shuttle departures only, and
+`service_kind` on a written row is always `"shuttle"`. The 9 still gets its own cards
+and timetable on the visitor board — it just never carries a count. Rows written before
+this was fixed still carry `service_kind = "bus9"` in the raw table, and are
+re-attributed to the shuttle on read; the column is kept for audit and the schema
+constraint is left alone.
+
 ## Layout
 
 ```
 src/config.ts                 saved connections, dataset, stop
 scripts/verify-connection-identity.ts  asserts connections are referentially stable
+scripts/verify-attribution.ts  asserts no tap can resolve to a 9
+scripts/verify-reader-protocol.ts       asserts sketch and web agree; replays the transcript
+scripts/check-taps.ts          local: inspect real rows and flag bad ones
 src/lib/boardings.ts          Supabase writes, reads, and the local outbox
 src/lib/nfcReader.ts          Web Serial session, line framing, JSON parsing
 src/lib/attribution.ts        tap -> service, the rollover rule
-src/lib/serviceId.ts          service ids and per-day departure windows
+src/lib/serviceId.ts          service ids and the shuttle departure windows
 src/lib/busyness.ts           shared labels, colours, model wrapper
 src/hooks/useBoardings.ts     initial fetch, Realtime, reconnect catch-up
-src/hooks/useReader.ts        serial lifecycle, unplug and reconnect handling
+src/hooks/useReader.ts        serial lifecycle, firmware handshake, unplug and replug
 src/KioskView.tsx             booth page
 src/App.tsx                   visitor page
 supabase/schema.sql           table, indexes, RLS, token check, Realtime

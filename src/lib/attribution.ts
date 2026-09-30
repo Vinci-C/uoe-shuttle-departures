@@ -9,7 +9,7 @@ export interface Attribution {
 }
 
 /**
- * Sorts taps onto the bus they boarded.
+ * Sorts taps onto the shuttle they boarded.
  *
  * A tap belongs to the first departure at that stop at or after the tap time, i.e. the
  * window between the previous bus leaving and this one leaving. That is what makes
@@ -18,6 +18,11 @@ export interface Attribution {
  * The rule is the tap time alone. The kiosk's `service_id` hint is written for humans
  * reading the raw row and never overrides this, so a delayed or stale hint can never
  * move a tap onto the wrong bus.
+ *
+ * `row.service_kind` is deliberately ignored. It is a hint for whoever reads the raw
+ * row, and the kiosk now always writes "shuttle", but rows written before that still
+ * carry "bus9". Trusting it is what let those rows resolve onto a 9 card; ignoring it
+ * re-attributes them to the shuttle, which is where the reader physically was.
  */
 export function attributeBoardings(
   rows: BoardingRow[],
@@ -25,13 +30,12 @@ export function attributeBoardings(
   displayDate: Date,
 ): Attribution {
   const day = londonDateKey(displayDate);
-  const byStopAndKind = new Map<string, ServiceWindow[]>();
+  const byStop = new Map<string, ServiceWindow[]>();
 
   for (const window of windows) {
-    const key = `${window.stop}|${window.serviceKind}`;
-    const list = byStopAndKind.get(key);
+    const list = byStop.get(window.stop);
     if (list) list.push(window);
-    else byStopAndKind.set(key, [window]);
+    else byStop.set(window.stop, [window]);
   }
 
   const counts: Record<string, number> = {};
@@ -42,9 +46,7 @@ export function attributeBoardings(
     if (londonDateKey(new Date(row.tapped_at)) !== day) continue;
     total += 1;
 
-    const candidates =
-      byStopAndKind.get(`${row.stop}|${row.service_kind}`) ??
-      windows.filter((window) => window.stop === row.stop);
+    const candidates = byStop.get(row.stop) ?? windows.filter((w) => w.stop === row.stop);
 
     const target = candidates.find(
       (window) => window.departureMinutes >= londonMinutes(row.tapped_at),

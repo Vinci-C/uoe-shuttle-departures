@@ -29,8 +29,16 @@ jobs:
       # object in an effect dependency array reproduces the render/fetch loop that
       # once generated tens of thousands of requests a day, and eslint cannot catch
       # it. Deploying without this check would ship that regression green.
+      #
+      # `verify:attribution` is the same kind of guard for the tap path: it fails if a
+      # tap can resolve to a Lothian 9 service, which is a wrong number on the board
+      # rather than an error. `verify:reader` replays the Arduino sketch's transcript
+      # through the real serial framing, which is the only thing standing between a
+      # firmware edit and a booth that silently counts nothing.
       - run: npm run lint
       - run: npm run verify:identity
+      - run: npm run verify:attribution
+      - run: npm run verify:reader
       - run: npm run build
       # Catches a build that compiled with no Supabase connection. tsc, lint and
       # verify:identity all pass on such a build; only the output is wrong.

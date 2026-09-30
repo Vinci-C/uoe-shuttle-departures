@@ -31,6 +31,9 @@ const READER_STATUS_TEXT: Record<ReaderState["status"], string> = {
   unsupported: "Not available in this browser",
   disconnected: "Reader not connected",
   connecting: "Opening serial port…",
+  // Normal and brief: opening the port resets an UNO, so the sketch's boot line
+  // arrives a second or two later.
+  awaiting: "Port open, waiting for the reader to report in",
   listening: "Listening for taps",
   error: "Reader error",
 };
@@ -159,11 +162,14 @@ const ReaderPanel: React.FC<ReaderPanelProps> = ({
           <strong>{READER_STATUS_TEXT[reader.status]}</strong>
           <span>
             {reader.portLabel ? `${reader.portLabel} · ` : ""}
+            {reader.firmware.version ? `fw ${reader.firmware.version} · ` : ""}
             {reader.scanCount} tap{reader.scanCount === 1 ? "" : "s"} this session
           </span>
         </div>
         <div className="reader-panel-actions">
-          {reader.status === "listening" || reader.status === "connecting" ? (
+          {reader.status === "listening" ||
+          reader.status === "connecting" ||
+          reader.status === "awaiting" ? (
             <button type="button" onClick={() => void reader.disconnect()}>
               Disconnect
             </button>
@@ -191,6 +197,22 @@ const ReaderPanel: React.FC<ReaderPanelProps> = ({
           </button>
         </div>
       </div>
+
+      {reader.status === "awaiting" && (
+        <p className="reader-note reader-note-warn">
+          The serial port opened but the board has not said anything yet. If it stays like
+          this, the sketch is not running: flash{" "}
+          <code>card reader/BoothReader/BoothReader.ino</code> to the Arduino, or check the
+          baud rate is 115200.
+        </p>
+      )}
+
+      {reader.status === "listening" && !reader.firmware.confirmed && (
+        <p className="reader-note reader-note-warn">
+          Connected, but no tap or reader message has been received yet. Confirm the sketch is
+          flashed and the correct stop is selected.
+        </p>
+      )}
 
       {!reader.supported && (
         <p className="reader-note">

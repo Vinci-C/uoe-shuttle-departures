@@ -11,7 +11,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "verify:identity": "vite-node --mode verify scripts/verify-connection-identity.ts",
-    "verify:bundle": "vite-node scripts/verify-bundle-configured.ts"
+    "verify:attribution": "vite-node --mode verify scripts/verify-attribution.ts",
+    "verify:reader": "vite-node --mode verify scripts/verify-reader-protocol.ts",
+    "verify:bundle": "vite-node scripts/verify-bundle-configured.ts",
+    "check:taps": "vite-node scripts/check-taps.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.58.0",

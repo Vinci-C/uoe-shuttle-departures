@@ -16,7 +16,7 @@ import {
 } from "./lib/boardings";
 import { predictServiceBusyness } from "./lib/busyness";
 import { attributeBoardings } from "./lib/attribution";
-import { buildServiceWindows, londonDateKey, londonMinutes, type ServiceWindow } from "./lib/serviceId";
+import { buildShuttleWindows, londonDateKey, londonMinutes, type ServiceWindow } from "./lib/serviceId";
 import DepartureBoard from "./components/DepartureBoard";
 import NextBusCard from "./components/NextBusCard";
 import ReaderPanel from "./components/ReaderPanel";
@@ -43,17 +43,17 @@ function KioskView() {
   const dayKey = londonDateKey(now);
   const serviceDate = useMemo(() => new Date(`${dayKey}T12:00:00Z`), [dayKey]);
   const windows = useMemo(
-    () => buildServiceWindows(config.stop, serviceDate),
+    () => buildShuttleWindows(config.stop, serviceDate),
     [config.stop, serviceDate],
   );
   const currentMinutes = londonMinutes(now.toISOString());
 
-  const nextWindow: ServiceWindow | undefined = useMemo(
+  const nextShuttle: ServiceWindow | undefined = useMemo(
     () => windows.find((window) => window.departureMinutes >= currentMinutes),
     [windows, currentMinutes],
   );
 
-  const previousWindow = useMemo(
+  const previousShuttle = useMemo(
     () => [...windows].reverse().find((window) => window.departureMinutes < currentMinutes),
     [windows, currentMinutes],
   );
@@ -71,8 +71,8 @@ function KioskView() {
       const result = await recordBoarding(connection, {
         dataset: config.dataset,
         stop: config.stop,
-        service_id: nextWindow?.serviceId ?? null,
-        service_kind: nextWindow?.serviceKind ?? "shuttle",
+        service_id: nextShuttle?.serviceId ?? null,
+        service_kind: "shuttle",
         card_id: cardId,
         tapped_at: new Date().toISOString(),
       });
@@ -91,7 +91,7 @@ function KioskView() {
       }
       setOutboxPending(getOutboxCount(connection.id));
     },
-    [config, nextWindow],
+    [config, nextShuttle],
   );
 
   const reader = useReader(recordTap);
@@ -111,10 +111,10 @@ function KioskView() {
     [boardings.rows, windows, now],
   );
 
-  const nextCount = nextWindow ? (stopAttribution.byServiceId[nextWindow.serviceId] ?? 0) : 0;
-  const nextPredicted: BusynessLevel = nextWindow
+  const nextCount = nextShuttle ? (stopAttribution.byServiceId[nextShuttle.serviceId] ?? 0) : 0;
+  const nextPredicted: BusynessLevel = nextShuttle
     ? predictServiceBusyness({
-        time: nextWindow.displayTime,
+        time: nextShuttle.displayTime,
         stop: config.stop,
         temperature: capacityParams.temperature,
         rainfall: capacityParams.rainfall,
@@ -193,8 +193,8 @@ function KioskView() {
   });
 
   const countdown = (() => {
-    if (!nextWindow) return "No more services";
-    const minutes = nextWindow.departureMinutes - currentMinutes;
+    if (!nextShuttle) return "No more services";
+    const minutes = nextShuttle.departureMinutes - currentMinutes;
     if (minutes <= 0) return "Departing";
     if (minutes < 60) return `in ${minutes} min`;
     return `in ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
@@ -230,16 +230,16 @@ function KioskView() {
           onDiscardOutbox={discardOutbox}
         />
 
-        {nextWindow && (
+        {nextShuttle && (
           <NextBusCard
-            serviceLabel={nextWindow.serviceLabel}
-            destination={nextWindow.destination}
-            time={nextWindow.displayTime}
+            serviceLabel={nextShuttle.serviceLabel}
+            destination={nextShuttle.destination}
+            time={nextShuttle.displayTime}
             countdown={countdown}
             count={nextCount}
             predicted={nextPredicted}
             updatedAt={boardings.lastTapAt ? formatClock(boardings.lastTapAt) : null}
-            windowOpensAt={previousWindow ? `${previousWindow.displayTime} (previous bus)` : "first service of the day"}
+            windowOpensAt={previousShuttle ? `${previousShuttle.displayTime} (previous bus)` : "first service of the day"}
           />
         )}
 
@@ -269,7 +269,7 @@ function KioskView() {
           {stopAttribution.unassigned > 0 && (
             <div className="setting-group">
               <span className="kiosk-stat kiosk-stat-dim">
-                {stopAttribution.unassigned} tap(s) after the last bus of the day
+                {stopAttribution.unassigned} tap(s) after the last shuttle of the day
               </span>
             </div>
           )}
