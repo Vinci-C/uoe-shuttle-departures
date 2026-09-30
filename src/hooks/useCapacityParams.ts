@@ -1,30 +1,12 @@
 import { useEffect, useState } from "react";
+import { getTeachingWeek } from "../data/timetable";
+import { londonDayOfWeek } from "../lib/londonTime";
 
 export interface CapacityParams {
   dayOfWeek: number;
   semesterWeek: number;
   temperature: number;
   rainfall: number;
-}
-
-// Semester 2 2026 starts 12 January 2026.
-const SEMESTER_START = new Date("2026-01-12T00:00:00Z");
-
-/**
- * Flexible Learning Week (calendar week 6) and Spring Break (weeks 13-14) are skipped,
- * which is what the model expects when it is fed `weekOfSemester`.
- */
-export function calculateSemesterWeek(date: Date): number {
-  const diffDays = Math.floor((date.getTime() - SEMESTER_START.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) return 0;
-
-  const calendarWeek = Math.floor(diffDays / 7) + 1;
-
-  if (calendarWeek === 6) return -1;
-  if (calendarWeek > 6 && calendarWeek < 13) return calendarWeek - 1;
-  if (calendarWeek === 13 || calendarWeek === 14) return -1;
-  if (calendarWeek > 14) return calendarWeek - 3;
-  return calendarWeek;
 }
 
 const toRainfallScale = (rainMm: number): number => {
@@ -61,8 +43,14 @@ export function useCapacityParams(now: Date): CapacityParams {
   }, []);
 
   return {
-    dayOfWeek: now.getDay(),
-    semesterWeek: calculateSemesterWeek(now),
+    // London, not the visitor's local clock. The timetable, the service ids and the
+    // attribution window are all day-scoped in London, so a day-of-week feature
+    // derived from anywhere else disagrees with them near midnight.
+    dayOfWeek: londonDayOfWeek(now),
+    // Read from ACADEMIC_CALENDAR_2026_27. This used to be computed from a single
+    // hardcoded semester start, which expired and silently drove the week number far
+    // outside the range the model was trained on. See that table for the full story.
+    semesterWeek: getTeachingWeek(now),
     temperature,
     rainfall,
   };

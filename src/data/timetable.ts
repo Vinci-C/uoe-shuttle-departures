@@ -210,3 +210,75 @@ export function isShuttleOperating(date: Date): boolean {
     p => dateStr >= p.start && dateStr <= p.end
   );
 }
+
+/**
+ * Teaching blocks for 2026/27, from https://semester-dates.ed.ac.uk/202627.
+ *
+ * Each entry is a contiguous run of teaching days tagged with the **teaching week number
+ * it starts at**. `week: -1` marks revision, examination, vacation and Flexible Learning
+ * Week, which the capacity model treats as its own regime rather than a week number.
+ * Edinburgh runs Semester 1 as teaching weeks 1-11 and Semester 2 as weeks 12-22.
+ *
+ * THIS IS THE INPUT THAT DECIDES EVERY BUSINESS PREDICTION ON THE BOARD, and it
+ * failed silently before. It was a single hardcoded `SEMESTER_START` of 12 Jan 2026
+ * (Semester 2 2026 only), so from 22 May 2026 onwards the computed "week of semester"
+ * just kept climbing — 35 by 30 Sep 2026. The model was only ever trained on weeks
+ * 1-11, so feeding it 35 extrapolated off a cliff and pushed every prediction under
+ * the `<= 40` threshold: 52 of 54 shuttle services read "Plenty of seats available".
+ * No request failed and nothing was logged.
+ *
+ * The difference between an in-range and out-of-range week is not subtle — at 09:33
+ * the model decays from 78 (week 1) to 61 (week 12) and keeps sliding. Keep this table
+ * current, and keep the ranges gap-free across a term, or `getTeachingWeek` falls
+ * through to its out-of-term result.
+ */
+export const ACADEMIC_CALENDAR_2026_27: {
+  start: string;
+  end: string;
+  week: number;
+}[] = [
+  // Semester 1: teaching blocks 1 (21 Sep - 23 Oct) and 2 (26 Oct - 4 Dec), then
+  // revision 7-8 Dec and examinations 9-21 Dec.
+  { start: "2026-09-21", end: "2026-10-25", week: 1 },
+  { start: "2026-10-26", end: "2026-12-04", week: 6 },
+  { start: "2026-12-07", end: "2026-12-21", week: -1 },
+  // Semester 2: teaching block 3 (11 Jan - 12 Feb), Flexible Learning Week
+  // 15-19 Feb, teaching block 4 (22 Feb - 2 Apr), spring teaching vacation
+  // 5-16 Apr, then revision and examinations to 21 May.
+  { start: "2027-01-11", end: "2027-02-12", week: 12 },
+  { start: "2027-02-15", end: "2027-02-19", week: -1 },
+  { start: "2027-02-22", end: "2027-04-02", week: 17 },
+  { start: "2027-04-05", end: "2027-04-16", week: -1 },
+  { start: "2027-04-19", end: "2027-05-21", week: -1 },
+];
+
+/** Whole days from one yyyy-MM-dd key to another. Keys are London calendar dates. */
+function daysBetweenKeys(from: string, to: string): number {
+  return Math.round(
+    (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
+      (86_400_000),
+  );
+}
+
+/**
+ * The teaching week the capacity model expects, or `-1` for anything that is not a
+ * teaching day: revision, examinations, vacation, Flexible Learning Week, welcome week,
+ * or any date outside the table above.
+ *
+ * `-1` rather than `0` on purpose. Downstream, `weekOfSemester` is `Math.max(1, week)`
+ * and `revisionOrFlexibleWeek` is `week === -1`, so returning `0` would silently become
+ * a confident week-1 prediction for a day that never happened. `-1` also makes the
+ * board read "plenty of seats" out of term, which is the honest answer: nobody is on
+ * campus.
+ *
+ * TODO: add 2027/28 when published (https://semester-dates.ed.ac.uk/202728).
+ */
+export function getTeachingWeek(date: Date): number {
+  const key = londonDateKey(date);
+  const entry = ACADEMIC_CALENDAR_2026_27.find(
+    p => key >= p.start && key <= p.end,
+  );
+  // Not a teaching day: either explicitly tagged -1, or between/outside the blocks.
+  if (!entry || entry.week < 0) return -1;
+  return entry.week + Math.floor(daysBetweenKeys(entry.start, key) / 7);
+}

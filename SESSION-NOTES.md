@@ -517,6 +517,108 @@ the entire run (intended, and the error message names the fix).
 
 ---
 
+## "Why does every bus say 'Plenty of seats available'?" (30 Sep 2026)
+
+### The prediction file was never the problem
+
+Checked first, because it was the obvious suspect. `src/data/modelWeights.json` is
+68,962 bytes, tracked since the first commit, and **byte-identical** to the copy in the
+sibling project `/Users/vincic/Documents/code/ai expo` — both SHA-256 `e014f5f5…`.
+`src/lib/runModel.ts` is byte-identical too (`55dccd28…`). All ten tensors match their
+declared shapes, and the network produces a healthy spread when fed sane inputs. So
+nothing was corrupt, missing, or mismatched.
+
+### The cause: a second hardcoded academic date that had expired
+
+`src/hooks/useCapacityParams.ts` computed the "week of semester" from a single
+hardcoded start:
+
+```ts
+// Semester 2 2026 starts 12 January 2026.
+const SEMESTER_START = new Date("2026-01-12T00:00:00Z");
+```
+
+One semester. No Semester 1, no 2026/27. It stopped being right on 2026-05-22 — the same
+day `SHUTTLE_OPERATING_PERIODS` stopped being right, fixed earlier the same day.
+
+Nothing guarded it, so it kept counting. By 30 Sep 2026, 261 days later,
+`calculateSemesterWeek` returned **35**, and `DepartureBoard.tsx` fed
+`Math.max(1, 35) = 35` to the model as `weekOfSemester`. The model was only ever trained
+on weeks 1–11. The week feature has a large effect — at 09:33 the prediction decays
+`w1=78 → w12=61` and keeps sliding — so 35 extrapolated off a cliff and pushed every
+output below the `<= 40` threshold in `ridershipToBusyness`:
+
+| week fed | mean prediction | L1 Plenty | L2 Limited | L3 Standing | L4 Full |
+| --- | --- | --- | --- | --- | --- |
+| **35 (shipped)** | 14.4 | **52** | 2 | 0 | 0 |
+| 2 (correct for 30 Sep) | 31.7 | 34 | 14 | 5 | 1 |
+
+52 of 54 services reading "Plenty of seats" is exactly the reported symptom. **No
+request failed, nothing was logged, and no test covered it.**
+
+**This was not a regression from the shuttle fix.** The shuttle was hidden until that
+fix, so these predictions had never been on screen. The fix exposed a latent bug.
+
+### The fix
+
+`ai expo` already had the right shape, so the calendar came from there: a
+`{start, end, week}` table plus `getTeachingWeek(date)`, in `src/data/timetable.ts`.
+All eight entries were checked against <https://semester-dates.ed.ac.uk/202627> and are
+accurate. Two deliberate deviations:
+
+- **London time, not local time.** The reference uses its own `toLocalDateString`
+  (local). This project deliberately moved to London, so `getTeachingWeek` uses the
+  existing `londonDateKey` and does its day arithmetic on London days. Copying the
+  reference verbatim would have reinstated the exact UTC/local bug fixed earlier today.
+- **`-1` out of term, not `0`.** Downstream, `weekOfSemester` is `Math.max(1, week)` and
+  `revisionOrFlexibleWeek` is `week === -1`, so `0` would silently become a confident
+  week-1 prediction for a day that never happened. `-1` means the board reads "plenty of
+  seats" out of term, which is the honest answer — nobody is on campus.
+
+`useCapacityParams` now calls `getTeachingWeek`, and its `dayOfWeek` moved from
+`now.getDay()` (local) to `londonDayOfWeek(now)` — the same class of bug, and the last
+one in that file.
+
+### Verification
+
+`getTeachingWeek` checked across 16 boundary dates plus a day-by-day sweep of the whole
+of 2026/27. Teaching weeks come out as **1–11 for Semester 1 and 12–22 for Semester 2**,
+matching the documented structure, with `-1` for welcome week, the 6–8 Dec and 26 Apr
+examinations, Flexible Learning Week, spring teaching vacation, winter and summer
+vacation. The 00:30-London case passes.
+
+The board was then rendered to static HTML to confirm the actual user-visible fix, since
+a correct `semesterWeek` alone does not prove the labels changed:
+
+| when | semesterWeek | L1 | L2 | L3 | L4 |
+| --- | --- | --- | --- | --- | --- |
+| Wed 30 Sep, 10:00 London (today) | 2 | 28 | 10 | 3 | 5 |
+| Wed 30 Sep, 08:00 London | 2 | 32 | 12 | 3 | 6 |
+| Wed 14 Oct | 4 | 33 | 9 | 4 | 5 |
+| Wed 19 Aug (out of term) | -1 | — | — | — | — (shuttle hidden) |
+
+> Two of my own test expectations were wrong while writing these, and the code was
+> right both times. First I asserted 22 May 2027 (Semester 2's official end date) should
+> be an operating day — it is a **Saturday**. Then I asserted 4 Dec 2026 was week 10 and
+> 2 Apr 2027 was week 21; they are weeks **11** and **22**, which is what makes Semester
+> 1 span 1–11 and Semester 2 span 12–22. Both caught by re-deriving the arithmetic.
+
+### Still true afterwards
+
+- **Out of term the board also reads mostly "Plenty of seats"** — the revision regime
+  averages 15.1, giving 51/3/0/0. That is correct, not a symptom: no teaching, no
+  riders. It only shows when the shuttle is hidden anyway.
+- **The 18:55 Kings departure is not one of the model's 54 known times**, so it
+  activates no time feature and gets a generic prediction. `runModel.ts` is identical in
+  both projects, so this predates today and is not a regression. 53 of 54 timetable
+  times match; this is the only mismatch.
+- `ACADEMIC_CALENDAR_2026_27` **only covers 2026/27.** Like `SHUTTLE_OPERATING_PERIODS`
+  it is hardcoded, and it will fail the same silent way in 2027/28. There is a `TODO` in
+  the source. If the ranges are ever left with a gap inside a term, `getTeachingWeek`
+  falls through to `-1` and the board under-predicts for that stretch.
+
+---
+
 ## "Why is only the 9 showing?" (30 Sep 2026)
 
 The board was serving the 9 and a "shuttle not in operation" notice instead of shuttle
@@ -668,10 +770,11 @@ actually in it.
 - [x] ~~Decide what to do about the dead corsproxy.io live feed~~ — **done 30 Sep 2026.**
       Removed rather than replaced. If live arrivals are ever wanted again, do it with a
       Supabase Edge Function; every public CORS proxy is unreliable or rate-limited.
-- [ ] **Add a 2027/28 entry to `SHUTTLE_OPERATING_PERIODS` when the dates are
-      published.** The list is hardcoded and fails silently. Without this, the shuttle
-      disappears again at the start of the 2027/28 autumn term. This is the recurring
-      failure mode, not a one-off.
+- [ ] **Add 2027/28 entries to `SHUTTLE_OPERATING_PERIODS` and
+      `ACADEMIC_CALENDAR_2026_27` when the dates are published.** Both are hardcoded and
+      both fail silently. The shuttle one already cost a whole term; the calendar one
+      made every prediction read "Plenty of seats" without a single error. This is a
+      recurring failure mode, not a one-off — see both incident sections above.
 - [ ] Wire up a real test runner. `verify:identity` is CI-ready and could be the first one.
 - [ ] **`npm audit`: 10 vulnerabilities (2 low, 2 moderate, 6 high), all in `vite`
       7.0.0–7.3.3.** Path traversal, `server.fs.deny` bypass, and arbitrary file read
@@ -716,11 +819,12 @@ actually in it.
 | `src/KioskView.tsx` | kiosk page. Uses `useBoothConfig()` |
 | `src/hooks/useBoardings.ts` | reads, Realtime, reconnect catch-up, no timer |
 | `src/hooks/useBoothConfig.ts` | memoised `activeConnection` |
+| `src/hooks/useCapacityParams.ts` | weather + `getTeachingWeek`; the two inputs the model needs beyond bus time |
 | `src/lib/boardings.ts` | writes, reads, outbox, `verifyIngestToken`, row caps |
 | `src/lib/supabase.ts` | client cache, conditional `x-boarding-token` header |
 | `src/lib/attribution.ts` | tap → service, day filter, rollover |
 | `src/lib/londonTime.ts` | London date key / minutes / day-of-week. Extracted from `serviceId.ts` so `timetable.ts` can use them without a cycle |
-| `src/data/timetable.ts` | schedules, `SHUTTLE_OPERATING_PERIODS`, `isShuttleOperating` |
+| `src/data/timetable.ts` | schedules, `SHUTTLE_OPERATING_PERIODS`, `isShuttleOperating`, `ACADEMIC_CALENDAR_2026_27`, `getTeachingWeek` |
 | `src/lib/serviceId.ts` | per-bus service ids, service windows; re-exports the London helpers |
 | `src/lib/nfcReader.ts` | Web Serial framing, JSON parsing |
 | `src/components/ReaderPanel.tsx` | connection editor, token check, outbox controls |
