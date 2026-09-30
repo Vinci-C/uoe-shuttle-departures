@@ -1,5 +1,9 @@
 # UoE Shuttle Departures — boarding demo
 
+> Working notes, open questions, and the state of the demo live in
+> [`SESSION-NOTES.md`](./SESSION-NOTES.md). Read that first if you are picking this up
+> cold. This README is the reference; the notes are the journal.
+
 Two pages built from the same departure board:
 
 | Page | Path | Who uses it |
