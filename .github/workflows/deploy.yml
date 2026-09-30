@@ -32,6 +32,9 @@ jobs:
       - run: npm run lint
       - run: npm run verify:identity
       - run: npm run build
+      # Catches a build that compiled with no Supabase connection. tsc, lint and
+      # verify:identity all pass on such a build; only the output is wrong.
+      - run: npm run verify:bundle
       - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
