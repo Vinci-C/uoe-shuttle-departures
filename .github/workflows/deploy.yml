@@ -19,14 +19,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Gates. `verify:identity` matters more than it looks: an unstable connection
+      # object in an effect dependency array reproduces the render/fetch loop that
+      # once generated tens of thousands of requests a day, and eslint cannot catch
+      # it. Deploying without this check would ship that regression green.
+      - run: npm run lint
+      - run: npm run verify:identity
       - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
@@ -38,4 +44,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
