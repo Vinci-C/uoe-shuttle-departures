@@ -18,11 +18,21 @@
  * Serial protocol (115200 baud, 8N1, newline delimited)
  *   out: {"v":1,"uid":"b1c2d3e4","tag":"NTAG213"}      a tap
  *   out: {"v":1,"event":"ready","fw":"1.0.0"}          on boot
- *   out: {"v":1,"event":"held","card":"b1c2d3e4"}      re-tap ignored (<10s)
+ *   out: {"v":1,"event":"held","card":"b1c2d3e4"}      still down, not counted again
  *   out: {"v":1,"event":"error","code":2}               1 = no tag, 2 = read failed
  *
- * Debounce: the same card is ignored for 10 seconds so a card left on the reader
- * is not counted twice.
+ * Debounce: a card counts ONCE per presentation. It has to be lifted clear of the
+ * field for REARM_MS before it can count again, no matter how long it sat there.
+ * A time-since-last-tap debounce is not equivalent and was a real bug: on hardware
+ * a card left lying on the reader was counted again every 10 seconds, three times in
+ * 50 seconds in the captured transcript in ../transcripts/. The distinction matters
+ * for a boarding demo, where people set a card down while they wait.
+ *
+ * The `tag` field is informational and may read "ERROR": that is the Seeed library
+ * reporting that authentication failed, which is expected and normal for any card we
+ * do not hold the sector keys for -- every real student card. The UID has already
+ * been read at that point, so the count is still correct and those taps must NOT be
+ * discarded.
  *
  * Wiring
  *   PN532 shield VCC  -> 5V   (5V is required; 3.3V power will not read tags)
@@ -41,12 +51,17 @@ PN532_SPI pn532spi(SPI, 10);
 NfcAdapter nfc = NfcAdapter(pn532spi);
 
 const char* FW_VERSION = "1.0.0";
-const unsigned long DEBOUNCE_MS = 10000UL;
+
+// How long the field must stay empty before the same card counts as a fresh tap.
+// Comfortably longer than the 400ms poll, so an antenna dropout mid-read does not
+// re-arm and split one presentation into two taps.
+const unsigned long REARM_MS = 1500UL;
 const int UID_BUFFER_SIZE = 12;
 
-// Last accepted card and when it was accepted.
+// Last accepted card, and when the field was last seen empty.
 String lastCard = "";
-unsigned long lastCardAt = 0;
+unsigned long absentSince = 0;
+bool rearmPending = false;
 
 // Tracks the last observed tag state so "no tag in field" is reported once per
 // transition rather than every 400ms for the whole demo.
@@ -104,6 +119,8 @@ void setup() {
 }
 
 void loop() {
+  unsigned long now = millis();
+
   if (!nfc.tagPresent()) {
     // Report the empty reader once per transition, not continuously: the kiosk
     // reads this stream and a repeating line is pure noise.
@@ -111,10 +128,25 @@ void loop() {
       printError(1);
       tagWasPresent = false;
     }
+    if (!rearmPending) {
+      absentSince = now;
+      rearmPending = true;
+    }
     delay(400);
     return;
   }
-  tagWasPresent = true;
+
+  if (!tagWasPresent) {
+    tagWasPresent = true;
+    // Absent->present transition. Only now, and only if it was gone long enough, is
+    // this a new boarding rather than the same card still sitting on the reader.
+    if (rearmPending) {
+      rearmPending = false;
+      if ((now - absentSince) >= REARM_MS) {
+        lastCard = "";
+      }
+    }
+  }
 
   NfcTag tag = nfc.read();
   uint8_t length = tag.getUidLength();
@@ -128,9 +160,9 @@ void loop() {
   tag.getUid(uid, length);
 
   String card = hashUid(uid, length);
-  unsigned long now = millis();
 
-  if (card == lastCard && (now - lastCardAt) < DEBOUNCE_MS) {
+  if (card == lastCard) {
+    // Same card, same presentation. Held for as long as they like, it stays one tap.
     printEvent("held", card);
   } else {
     // {"v":1,"uid":"b1c2d3e4","tag":"NTAG213"}
@@ -141,7 +173,6 @@ void loop() {
     Serial.println("\"}");
 
     lastCard = card;
-    lastCardAt = now;
   }
 
   delay(400);

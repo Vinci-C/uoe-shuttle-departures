@@ -1,0 +1,73 @@
+Found chip PN532
+Firmware ver. 1.6
+{"v":1,"event":"ready","fw":"1.0.0"}
+Tag is not NDEF formatted.
+{"v":1,"uid":"04a1b2c3","tag":"Mifare Classic"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+{"v":1,"event":"error","code":1}
+Tag is not NDEF formatted.
+{"v":1,"uid":"04a1b2c3","tag":"Mifare Classic"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+Tag is not NDEF formatted.
+{"v":1,"event":"held","card":"04a1b2c3"}
+{"v":1,"event":"error","code":1}

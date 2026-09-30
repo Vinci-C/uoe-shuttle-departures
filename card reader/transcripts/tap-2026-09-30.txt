@@ -1,0 +1,3 @@
+Found chip PN532
+Firmware ver. 1.6
+{"v":1,"event":"ready","fw":"1.0.0"}

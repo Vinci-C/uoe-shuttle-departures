@@ -75,11 +75,23 @@ check(
   "sketch emits v:1",
 );
 
-const debounce = sketch.match(/DEBOUNCE_MS\s*=\s*(\d+)UL/);
+// The re-arm threshold decides how long a card must be lifted before it counts again.
+// It has to be comfortably longer than the sketch's 400ms poll, or an antenna dropout
+// mid-read would split one presentation into two taps. The first implementation used a
+// time-since-last-tap debounce instead and counted a card left on the reader every 10s;
+// see card reader/transcripts/ for the capture that caught it.
+const rearm = sketch.match(/REARM_MS\s*=\s*(\d+)UL/);
+const poll = sketch.match(/delay\((\d+)\);/);
 check(
-  "the sketch's debounce is the 10s the docs and UI claim",
-  debounce !== null && debounce[1] === "10000",
-  debounce ? `DEBOUNCE_MS = ${debounce[1]}ms` : "DEBOUNCE_MS not found",
+  "the sketch re-arms on a lift, not on elapsed time",
+  rearm !== null && /lastCard\s*=\s*""/.test(sketch) && !/lastCardAt/.test(sketch),
+  rearm ? `REARM_MS = ${rearm[1]}ms` : "REARM_MS not found",
+);
+
+check(
+  "the re-arm threshold outlasts the poll, so a dropout cannot split one tap",
+  rearm !== null && poll !== null && Number(rearm[1]) >= Number(poll[1]) * 2,
+  `REARM_MS = ${rearm?.[1]}ms, poll = ${poll?.[1]}ms`,
 );
 
 // The sketch hashes with %08lx: 8 lowercase hex. If that stops being true the web
@@ -190,6 +202,75 @@ check(
   new Set(taps.map((t) => t.uid)).size === taps.length,
   `${new Set(taps.map((t) => t.uid)).size} distinct of ${taps.length}`,
 );
+
+// ------------------------------------------------------------- real hardware replay
+
+// The synthetic transcript above pins the contract. This one pins the behaviour that
+// actually broke: a card held on the reader for 25s produced three taps before the
+// lift-based re-arm, and only one after. Captured from the bench, library debug
+// chatter and all, so it also proves unrelated non-JSON lines are survivable.
+const REAL = "card reader/transcripts/tap-debounce-fixed-2026-09-30.txt";
+
+try {
+  const captured = readFileSync(REAL, "utf8");
+
+  const replayed: ScanEvent[] = [];
+  const replayErrors: string[] = [];
+  const realPort = {
+    readable: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(captured));
+        controller.close();
+      },
+    }),
+  } as unknown as SerialPort;
+
+  await new Promise<void>((resolve) => {
+    readScans(
+      realPort,
+      (event) => replayed.push(event),
+      (err) => replayErrors.push(err.message),
+    );
+    setTimeout(resolve, 250);
+  });
+
+  const realTaps = replayed.filter((event) => isTapCardId(event.uid));
+  const realHeld = replayed.filter((event) => event.event === "held");
+
+  check(
+    "a card held on the reader for 25s counts once, not once per debounce window",
+    realTaps.length === 2 && realHeld.length > 20,
+    `${realTaps.length} taps, ${realHeld.length} held`,
+  );
+
+  check(
+    "every real tap carries a card id the web accepts",
+    realTaps.every((event) => isTapCardId(event.uid)),
+    `[${realTaps.map((event) => event.uid).join(", ")}]`,
+  );
+
+  // 36 of the 73 lines in that capture are the Seeed library's own debug output. If
+  // those surfaced as warnings the kiosk panel would fill with noise on every tag.
+  check(
+    "the library's debug chatter is dropped silently, not warned about",
+    replayErrors.length === 0,
+    `${replayErrors.length} warning(s): ${JSON.stringify(replayErrors.slice(0, 2))}`,
+  );
+
+  check(
+    "the real capture yields only the events it documents",
+    replayed.length ===
+      realTaps.length + realHeld.length +
+        replayed.filter((e) => e.event === "ready").length +
+        replayed.filter((e) => e.event === "error").length,
+    `${replayed.length} events: ${realTaps.length} tap, ${realHeld.length} held, ` +
+      `${replayed.filter((e) => e.event === "ready").length} ready, ` +
+      `${replayed.filter((e) => e.event === "error").length} error`,
+  );
+} catch {
+  console.error(`FAIL  real transcript is readable  ${REAL} not found`);
+  failures.push(`real transcript ${REAL} not found`);
+}
 
 if (failures.length > 0) {
   console.error(`\n${failures.length} reader protocol check(s) failed.`);

@@ -104,6 +104,14 @@ export function readScans(
   let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
   const handleLine = (line: string) => {
+    // The Seeed library prints its own debug to the same port (src/Ndef.h defines
+    // NDEF_USE_SERIAL unconditionally, so it cannot be turned off from the sketch).
+    // On the bench that was 36 of 73 lines in a 50s capture, mostly "Tag is not NDEF
+    // formatted." A line that does not begin with `{` is therefore third-party chatter
+    // and is dropped silently. A line that DOES begin with `{` but fails to parse is a
+    // real protocol fault and is reported, which is what the malformed-JSON test pins.
+    if (!line.startsWith("{")) return;
+
     try {
       const parsed: unknown = JSON.parse(line);
       // A line is worth forwarding if it is either a tap (`uid`) or a sketch event

@@ -904,22 +904,27 @@ Picking up the card reader. Nothing about the reader needed building — the cha
 `BoothReader.ino` through Web Serial to Supabase has been wired for a while. What was
 missing was validation, and one bug that only a real stream would have exposed.
 
-### The board is connected but has never been flashed
+### The board is a genuine Arduino UNO R3 — two things I got wrong
 
-The board is physically attached and enumerates fine:
+Corrected on 30 Sep 2026, after the board was finally flashed and verified:
 
-- `/dev/cu.usbmodem113301`, USB VID:PID **`2341:0411`**, serial `03536373232351306182`.
-- Reading it for 6s at 115200 returns **0 bytes**. Nothing is running on it.
-- **No Arduino toolchain on this machine at all**: no Arduino IDE in `/Applications`, no
-  `arduino-cli` on `PATH`, no `~/Library/Arduino15`. So it has not been flashed because
-  there was no way to flash it, not because the upload was skipped.
+- The board is `/dev/cu.usbmodem113301`, USB **`2341:0043`** — *Uno R3 (CDC ACM)* — serial
+  `03536373232351306182`, device signature `1E 95 0F` (ATmega328P). It is exactly the
+  board the sketch was written for.
+- The toolchain **was** installed all along: Arduino IDE 2.3.10 in `/Applications`, core
+  `arduino:avr` 1.8.8, and `Seeed_Arduino_NFC` 1.1.0 in the sketchbook. The earlier
+  "no toolchain on this machine at all" was simply wrong.
 
-`2341` is Arduino's official vendor id, so this is not a CH340 clone. The sketch comment
-says *Arduino UNO R3* and `README.md` had claimed the configuration was "verified on the
-bench", which was never true — both are corrected. The exact board matters because the
-sketch has to compile for whatever core it is, and `2341:0411` is a native-USB part
-rather than the ATmega328P/16U2 combination the comment describes. **The board type
-still needs confirming before the first upload.**
+I had recorded the USB id as `2341:0411`. That was a **Realtek USB3.2 hub** further up the
+same USB tree, picked up because I matched on the wrong `idProduct` when scanning
+`ioreg`. The Arduino is `0x0043`. `arduino-cli board list` reported the right answer
+(`arduino:avr:uno`) while I was still working from the wrong id, which is the actual
+lesson: the toolchain would have told me immediately and I did not ask it.
+
+Check it with `ioreg -p IOUSB -l -w 0 | grep -A3 '"idProduct" = 67'`.
+
+Flashing needs no GUI — the IDE bundles a working `arduino-cli` at
+`/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli`.
 
 ### The attribution bug was much worse than estimated
 
@@ -1014,17 +1019,70 @@ for the first real tap** — a command rather than an eyeball.
 Once the board is flashed, `verify:reader`'s synthetic transcript should be replaced with
 a real capture checked into `card reader/transcripts/`.
 
-### Bench checklist, not yet done
+### Bench results, 30 Sep 2026 — done
 
-1. Install the Arduino IDE or `ardino-cli`, and the *Seeed Arduino NFC* library from
-   [`card reader/Seeed_Arduino_NFC-master.zip`](../card%20reader/).
-2. Confirm the board type from `2341:0411`, select it, and upload `BoothReader.ino`.
-3. Serial Monitor at **115200**; tap a tag. Want to see `ready`, and what
-   `tag.getUidLength()` reports — 4 vs 7 bytes changes the hash input.
-4. Save that capture to `card reader/transcripts/` and point `verify:reader` at it.
-5. `/kiosk.html` in Chrome or Edge, pick dataset and stop, paste the ingest token
-   (the Connection panel verifies it before saving), **Connect reader**. Expect
-   *Port open, waiting…* then *Listening for taps* with a firmware version.
-6. Tap, then `npm run check:taps`.
-7. Rest the card on the reader for ~10s: exactly one row. Second tag: a second row.
-8. Wifi off → tap → queued → wifi on → flush: no duplicates, `tapped_at` preserved.
+| Step | Result |
+| --- | --- |
+| Compile | first try, 12238 bytes (37% flash), 559 bytes globals, 1489 free |
+| Upload | 12238 bytes written, signature `1E 95 0F` |
+| Boot line | `Found chip PN532` / `Firmware ver. 1.6` / `{"v":1,"event":"ready","fw":"1.0.0"}` |
+| Real tap | a Mifare Classic card, hashed to 8 lowercase hex; a second distinct card read the same way |
+| End to end | 4 rows in Supabase, all `raw kind=shuttle`, all resolved to the 14:13 Bristo shuttle, 0 FAILs from `check:taps` |
+| Debounce | **failed, then fixed** — see below |
+
+The sketch's `String` fields were never at risk on the UNO R3's 2KB of RAM: 559 bytes of
+globals and 1489 free, so the buffer refactor that was planned turned out to be
+unnecessary.
+
+### macOS cannot read this CDC device with the obvious tools
+
+Every stock macOS reader reported the board as silent, and all of them were wrong:
+
+| Reader | Result |
+| --- | --- |
+| `arduino-cli monitor` | 0 bytes over 45s |
+| `dd`, `cat`, `cu` | 1 byte/sec of high-byte garbage |
+| `stty` + the above, 9600–230400 baud | identical rate at **every** baud |
+| `serialport` (npm) | correct text, first try |
+
+Byte rate identical across every baud ruled out a baud mismatch and pointed at the tty
+layer. The `serialport` library read the same port perfectly. Anyone else on a Mac
+debugging this will hit the same wall and should not conclude the board is dead.
+
+Note also that **opening the port resets the board** (DTR), so every capture gets a fresh
+boot line — convenient, but it means the `ready` line is not a reliable "first connect"
+signal.
+
+### The debounce was wrong, and only hardware caught it
+
+The sketch debounced on *time since the last accepted tap*: 10 seconds. A card left
+resting on the reader was therefore counted again every 10 seconds, forever. Measured on
+the bench, one continuous 25-second hold produced **3 taps**. The sketch's own comment
+claimed "a card left on the reader is not counted twice" — it did exactly that, and for a
+boarding demo, where people set a card down while they wait, that is the whole failure
+mode.
+
+Now a card counts once per *presentation*: the field must be empty for 1.5s (comfortably
+longer than the 400ms poll, so an antenna dropout cannot split one tap) before the same
+card counts again. Re-tested with the same 25s hold: **1 tap**, 32 `held` events. The
+before/after capture is checked in, and `verify:reader` replays it.
+
+The old guard asserted `DEBOUNCE_MS = 10000UL`, so it passed while the behaviour was
+wrong — it was checking the constant matched the docs, not that the docs were true. It now
+asserts re-arm happens on a lift, and that the threshold outlasts the poll.
+
+### `tag: "ERROR"` is correct and must not be filtered
+
+`MifareClassic.cpp:30` returns `NfcTag(uid, uidLength, "ERROR")` when *authentication*
+fails, with the UID already read. That is the normal result for any card we do not hold
+sector keys for — every real student card. Rejecting `ERROR` would have silently stopped
+counting genuine cards. The `tag` field is informational; the count is what matters.
+
+### The library talks on the same port, and cannot be told not to
+
+`src/Ndef.h` defines `NDEF_USE_SERIAL` unconditionally, so 36 of 73 lines in a 50s capture
+were library debug (`Tag is not NDEF formatted.`). `#undef` from the sketch cannot help —
+it is a separate translation unit. Rather than patch a vendored third-party library, the
+kiosk now ignores any line not beginning with `{`, silently. A line that does begin with
+`{` but fails to parse is still a real fault and is still reported.
+

@@ -121,11 +121,18 @@ checklist and what was confirmed about the connected board.
 1. Copy the library into `~/Documents/Arduino/libraries` (or install *Seeed Arduino
    NFC* from the Library Manager). The reference zip is in
    [`card reader/`](card%20reader/).
-2. Open [`card reader/BoothReader/BoothReader.ino`](card%20reader/BoothReader/BoothReader.ino),
-   select the board matching your USB ids, and upload. The board seen on 30 Sep 2026
-   enumerated as `2341:0411` on `/dev/cu.usbmodem113301`, which is a native-USB Arduino
-   rather than the CH340 UNO R3 the sketch comment assumes; pick the board from the
-   actual hardware, and check the sketch compiles for that core.
+2. Open [`card reader/BoothReader/BoothReader.ino`](card%20reader/BoothReader/BoothReader.ino)
+   and upload to an **Arduino UNO** (`arduino:avr:uno`). The board verified on 30 Sep 2026
+   is a genuine Arduino UNO R3: USB `2341:0043` (*Uno R3, CDC ACM*) on
+   `/dev/cu.usbmodem113301`, device signature `1E 95 0F` (ATmega328P). Verify with
+   `ioreg -p IOUSB -l -w 0 | grep -A3 '"idProduct" = 67'` — `0x0043` is the UNO R3.
+   `arduino-cli` bundled in the IDE can build and flash it without the GUI:
+
+   ```
+   CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli"
+   "$CLI" compile --fqbn arduino:avr:uno --build-path /tmp/br "card reader/BoothReader"
+   "$CLI" upload -p /dev/cu.usbmodem113301 --fqbn arduino:avr:uno --build-path /tmp/br
+   ```
 3. Open `/kiosk.html` in Chrome or Edge on the booth laptop and press **Connect
    reader**. Web Serial needs a secure context: `localhost` works during development,
    and the deployed Pages URL is HTTPS.
@@ -135,15 +142,34 @@ The firmware prints one JSON line per event at 115200 baud:
 ```
 {"v":1,"event":"ready","fw":"1.0.0"}
 {"v":1,"uid":"b1c2d3e4","tag":"NTAG213"}
-{"v":1,"event":"held","card":"b1c2d3e4"}   // same card again within 10s, ignored
+{"v":1,"event":"held","card":"b1c2d3e4"}   // same card, still resting on the reader
 {"v":1,"event":"error","code":1}          // no tag in the field
 ```
 
 The kiosk counts a line as a tap if it carries `uid` of exactly 8 hex characters, and
-ignores the rest. The 10 second debounce is enforced on the board, so a card left resting
-on the reader is not counted twice, and `error` is only emitted once per transition
-rather than continuously. A `uid` that is not 8 hex characters is dropped with a visible
-warning rather than written to the database.
+ignores the rest. A `uid` that is not 8 hex characters is dropped with a visible warning
+rather than written to the database.
+
+**A card counts once per presentation.** It has to be lifted clear of the field for 1.5s
+before it counts again, however long it sat there. This is deliberately *not* a
+"time since last tap" debounce: that version was a real bug found on the bench, where a
+card left resting on the reader was counted again every 10 seconds — three times in 50
+seconds. For a boarding demo, where people set a card down while they wait, that inflates
+counts. The capture is in
+[`card reader/transcripts/`](card%20reader/transcripts/) and
+`npm run verify:reader` replays it, so it cannot come back unnoticed.
+
+The `tag` field is informational and may read `"ERROR"`. That is the Seeed library
+reporting that *authentication* failed, which is expected for any card we do not hold the
+sector keys for — every real student card. The UID is already read by then, so the count
+is correct and those taps are **not** discarded.
+
+The library also writes its own debug to the same port, which cannot be disabled from the
+sketch (`src/Ndef.h` defines `NDEF_USE_SERIAL` unconditionally): on the bench that was 36
+of 73 lines in a 50s capture, mostly `Tag is not NDEF formatted.` The kiosk therefore
+ignores any line that does not begin with `{`, silently, so the panel does not fill with
+third-party noise. A line that *does* begin with `{` but fails to parse is a real fault and
+is still surfaced.
 
 The panel distinguishes three healthy-ish states, because opening a serial port that no
 sketch is using still succeeds — a board that was never flashed reads as healthy at that
