@@ -34,88 +34,6 @@ interface Departure {
   expectedTime?: string;
 }
 
-interface LiveArrival {
-  service: string;
-  destination: string;
-  scheduledTime: string;
-  expectedTime?: string;
-}
-
-const fetchLiveArrivals = async (stopId: string, retries = 0): Promise<LiveArrival[]> => {
-  try {
-    // Using corsproxy.io for better reliability
-    // Adding timestamp and no-cache to avoid stale responses
-    const response = await fetch(
-      `https://corsproxy.io/?${encodeURIComponent(`https://bustimes.org/stops/${stopId}?t=${Date.now()}`)}`,
-      { cache: 'no-cache' }
-    );
-
-    if (response.status === 429 && retries < 2) {
-      console.warn(`Rate limited for stop ${stopId}, retrying in 5s...`);
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      return fetchLiveArrivals(stopId, retries + 1);
-    }
-
-    if (!response.ok) {
-      console.warn(`Failed to fetch live arrivals for stop ${stopId}: ${response.status} ${response.statusText}`);
-      return [];
-    }
-    
-    const html = await response.text();
-    if (!html) {
-      console.warn(`Empty response for stop ${stopId}`);
-      return [];
-    }
-
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const table = doc.querySelector('table');
-    if (!table) {
-      console.warn(`No table found in response for stop ${stopId}`);
-      return [];
-    }
-
-    const rows = table.querySelectorAll('tbody tr');
-    const arrivals: LiveArrival[] = [];
-
-    rows.forEach(row => {
-      const cells = row.querySelectorAll('td');
-      if (cells.length < 3) return;
-
-      // Service number is usually in the first cell, often inside an <a> tag
-      const service = cells[0].textContent?.trim() || "";
-      // Destination is in the second cell
-      const destination = cells[1].childNodes[0]?.textContent?.trim() || "";
-      // Scheduled time is in the third cell, often inside an <a> tag
-      const scheduled = cells[2].textContent?.trim() || "";
-      // Expected time is in the fourth cell, if it exists
-      const expected = cells[3]?.textContent?.trim() || "";
-      
-      // Clean up the service number (e.g., "9" or "X9")
-      const cleanService = service.replace(/\s+/g, '');
-      // Clean up the scheduled time to ensure it matches HH:mm
-      const timeMatch = scheduled.match(/\d{1,2}:\d{2}/);
-      const cleanScheduled = timeMatch ? timeMatch[0] : "";
-      
-      if (cleanService && cleanScheduled) {
-        const expectedMatch = expected.match(/\d{1,2}:\d{2}/);
-        const cleanExpected = expectedMatch ? expectedMatch[0] : undefined;
-
-        arrivals.push({
-          service: cleanService,
-          destination: destination,
-          scheduledTime: cleanScheduled,
-          expectedTime: cleanExpected
-        });
-      }
-    });
-    return arrivals;
-  } catch (err) {
-    console.warn(`Error in fetchLiveArrivals for stop ${stopId}:`, err);
-    return [];
-  }
-};
-
 const BusynessIndicator: React.FC<{
   level: BusynessLevel;
   hideTooltip?: boolean;
@@ -360,33 +278,6 @@ const DepartureBoard: React.FC<DepartureBoardProps> = ({
   capacityParams,
   boardings = [],
 }) => {
-  const [liveArrivalsBristo, setLiveArrivalsBristo] = React.useState<LiveArrival[]>([]);
-  const [liveArrivalsKings, setLiveArrivalsKings] = React.useState<LiveArrival[]>([]);
-
-  React.useEffect(() => {
-    const fetchAllLive = async () => {
-      // Don't fetch live data if we're in manual time override (debugging mode)
-      if (isManualTime) return;
-      
-      try {
-        const bristo = await fetchLiveArrivals("6200206420");
-        setLiveArrivalsBristo(bristo);
-        
-        // Wait 2 seconds between requests to avoid rate limits
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        const kings = await fetchLiveArrivals("6200239805");
-        setLiveArrivalsKings(kings);
-      } catch (err) {
-        console.warn("Live fetch cycle failed:", err);
-      }
-    };
-
-    fetchAllLive();
-    const interval = setInterval(fetchAllLive, 60000);
-    return () => clearInterval(interval);
-  }, [isManualTime]);
-
   const formatTime = React.useCallback((timeStr: string, format: TimeFormat): string => {
     const normalized = timeStr.replace(":", "");
     const hours = parseInt(normalized.substring(0, 2));
@@ -432,7 +323,6 @@ const DepartureBoard: React.FC<DepartureBoardProps> = ({
     schedule: DepartureTime[],
     destination: string,
     bus9Schedule: DepartureTime[],
-    liveArrivals: LiveArrival[] = [],
   ): Departure[] => {
     const getPredictedBusyness = (scheduledBaseCapacity?: number, hhmm?: string): BusynessLevel => {
       if (hhmm) {
@@ -537,51 +427,13 @@ const DepartureBoard: React.FC<DepartureBoardProps> = ({
         .map((d, index) => {
           const scheduledMins = timeToMinutes(d.displayTime);
           
-          // Fuzzy match: same service and scheduled time within 5 minutes
-          // Use endsWith for service comparison to handle things like "N9" or "9"
-          const live = liveArrivals.find(l => {
-            const isMatch = l.service.endsWith("9") || "9".endsWith(l.service);
-            if (!isMatch) return false;
-            const liveScheduledMins = timeToMinutes(l.scheduledTime);
-            return Math.abs(liveScheduledMins - scheduledMins) <= 5;
-          });
+          // There is no live feed, so the 9 is always shown at its scheduled time.
+          let status = "Scheduled";
 
-          let status = (live && live.expectedTime) ? "On Time" : "Scheduled";
-          let expectedTime: string | undefined = undefined;
-          let expectedArrivalTime: string | undefined = undefined;
-          const isLive = !!(live && live.expectedTime);
-          let actualTimeMins = scheduledMins;
+          if (scheduledMins < currentMins) return null;
 
-          if (live && live.expectedTime) {
-            const expDepMins = timeToMinutes(live.expectedTime);
-            actualTimeMins = expDepMins;
-            expectedTime = formatTime(live.expectedTime, timeFormat);
-            
-            if (live.expectedTime !== live.scheduledTime) {
-              status = "Delayed";
-
-              // Calculate delay in minutes and apply to destination arrival time
-              if (d.arrivalTime) {
-                const schedDepMins = timeToMinutes(live.scheduledTime);
-                const delay = expDepMins - schedDepMins;
-
-                if (delay > 0) {
-                  const schedArrMins = timeToMinutes(d.arrivalTime);
-                  const newArrMins = schedArrMins + delay;
-                  const h = Math.floor(newArrMins / 60) % 24;
-                  const m = newArrMins % 60;
-                  const liveArrivalStr = `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
-                  expectedArrivalTime = formatTime(liveArrivalStr, timeFormat);
-                }
-              }
-            }
-          }
-
-          // If it's too late even after considering delay, don't show it
-          if (actualTimeMins < currentMins) return null;
-
-          if (index === 0 && !isManualTime && (status === "On Time" || status === "Scheduled")) {
-            const diff = actualTimeMins - currentMins;
+          if (index === 0 && !isManualTime) {
+            const diff = scheduledMins - currentMins;
             if (diff <= 3 && diff >= 0) status = "Departing";
           }
 
@@ -592,12 +444,9 @@ const DepartureBoard: React.FC<DepartureBoardProps> = ({
             rawTime: d.time,
             timestamp: new Date(overrideDate.getFullYear(), overrideDate.getMonth(), overrideDate.getDate(), parseInt(d.time.substring(0, 2)), parseInt(d.time.substring(2))).getTime(),
             arrivalTime: d.arrivalTime ? formatTime(d.arrivalTime, timeFormat) : undefined,
-            expectedArrivalTime,
             type: "Lothian 9",
             destination: d.destination || (destination === "Kings Buildings" ? "Kings Buildings" : "Muirhouse"),
             status,
-            expectedTime,
-            isLive,
             busyness: 0 as BusynessLevel, 
           };
         })
@@ -638,16 +487,14 @@ const DepartureBoard: React.FC<DepartureBoardProps> = ({
     BRISTO_SQUARE_DEPARTURES,
     "Kings Buildings",
     BUS_9_TO_KB,
-    liveArrivalsBristo,
-  ), [getNextDepartures, liveArrivalsBristo]);
+  ), [getNextDepartures]);
 
   const departuresKings = React.useMemo(() => getNextDepartures(
     "kings",
     KINGS_BUILDINGS_DEPARTURES,
     "Bristo Square",
     BUS_9_FROM_KB,
-    liveArrivalsKings,
-  ), [getNextDepartures, liveArrivalsKings]);
+  ), [getNextDepartures]);
 
   // A tap belongs to the first departure from that stop at or after the tap, so each
   // bus starts counting from zero without anything having to reset it.

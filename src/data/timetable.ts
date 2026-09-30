@@ -1,3 +1,5 @@
+import { londonDateKey, londonDayOfWeek } from "../lib/londonTime";
+
 export interface DepartureTime {
   time: string; // HHMM format
   displayTime: string; // HH:mm format
@@ -177,16 +179,33 @@ export const BUS_9_FROM_KB: DepartureTime[] = [
   {"time": "0015", "displayTime": "00:15", "arrivalTime": "00:28", "destination": "Hanover Street"}
 ];
 
+/**
+ * Weeks in which the shuttle runs, taken from the University semester dates
+ * (https://semester-dates.ed.ac.uk). Weekends are excluded by `isShuttleOperating`.
+ *
+ * THIS LIST IS WHAT HIDES THE SHUTTLE, SILENTLY. When a term starts and is missing
+ * here, `isShuttleOperating` returns false, the board shows only the 9 plus a
+ * "shuttle not in operation" notice, and nothing anywhere reports an error. The list
+ * expired on 2026-05-22 and the shuttle vanished for the whole of the 2026/27 autumn
+ * term.
+ *
+ * When you add a term, add the next one too, and note the source.
+ */
 export const SHUTTLE_OPERATING_PERIODS: { start: string; end: string }[] = [
+  // 2025/26
   { start: "2025-09-08", end: "2025-12-19" },
   { start: "2026-01-12", end: "2026-04-03" },
   { start: "2026-04-20", end: "2026-05-22" },
+  // 2026/27. Semester 1 runs 21 Sep - 21 Dec 2026, Semester 2 runs 11 Jan - 22 May 2027.
+  // TODO: add 2027/28 when published (https://semester-dates.ed.ac.uk/202728).
+  { start: "2026-09-21", end: "2026-12-21" },
+  { start: "2027-01-11", end: "2027-05-22" },
 ];
 
 export function isShuttleOperating(date: Date): boolean {
-  const day = date.getDay();
+  const day = londonDayOfWeek(date);
   if (day === 0 || day === 6) return false;
-  const dateStr = date.toISOString().slice(0, 10);
+  const dateStr = londonDateKey(date);
   return SHUTTLE_OPERATING_PERIODS.some(
     p => dateStr >= p.start && dateStr <= p.end
   );

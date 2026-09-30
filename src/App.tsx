@@ -43,7 +43,6 @@ function App() {
   const [manualTime, setManualTime] = useState("");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [cookieAccepted, setCookieAccepted] = useState(() => getStored("cookieAccepted", false));
-  const [visitorCount, setVisitorCount] = useState<number | null>(null);
 
   // The visitor board reads the dataset named in the URL, falling back to the default.
   const connection = envConnection();
@@ -63,13 +62,6 @@ function App() {
     setCookieAccepted(true);
     saveStored("cookieAccepted", true);
   };
-
-  useEffect(() => {
-    fetch("https://api.countapi.xyz/hit/uoe-bus-tracker/visitors")
-      .then((res) => res.json())
-      .then((data) => setVisitorCount(data.value))
-      .catch(() => {});
-  }, []);
 
   // Update system time every second unless in manual mode
   useEffect(() => {
@@ -262,9 +254,6 @@ function App() {
       </main>
 
       <footer className="board-footer">
-        <div className="visitor-counter">
-          Visitors: <span className="visitor-count">{visitorCount}</span>
-        </div>
         <div className="compliance-badge">
           <a
             href="https://www.w3.org/TR/WCAG22/"

@@ -7,35 +7,11 @@ import {
   BUS_9_FROM_KB,
   type DepartureTime,
 } from "../data/timetable";
+import { londonDateKey } from "./londonTime";
 
-const LONDON_TIME_ZONE = "Europe/London";
-
-const dayFormatter = new Intl.DateTimeFormat("en-CA", {
-  timeZone: LONDON_TIME_ZONE,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
-const clockFormatter = new Intl.DateTimeFormat("en-GB", {
-  timeZone: LONDON_TIME_ZONE,
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-
-/** yyyy-MM-dd in London, used to keep datasets and service ids day-scoped. */
-export function londonDateKey(date: Date): string {
-  return dayFormatter.format(date);
-}
-
-/** Minutes since London midnight for an ISO timestamp. */
-export function londonMinutes(iso: string): number {
-  const parts = clockFormatter.formatToParts(new Date(iso));
-  const hours = Number(parts.find((part) => part.type === "hour")?.value);
-  const minutes = Number(parts.find((part) => part.type === "minute")?.value);
-  return hours * 60 + minutes;
-}
+// Re-exported so existing callers keep importing from here. The London helpers live
+// in their own module so `timetable.ts` can use them without importing this file back.
+export { londonDateKey, londonMinutes } from "./londonTime";
 
 function hhmmToMinutes(hhmm: string): number {
   const digits = hhmm.replace(":", "");

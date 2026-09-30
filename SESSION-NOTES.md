@@ -497,8 +497,8 @@ the entire run (intended, and the error message names the fix).
 - `boarding_token_is_valid` reachable as a PostgREST RPC by `anon`
 - `boardings` present in `supabase_realtime`
 - Payload measured at 7,799 B per request, 217 B/row
-- Bundle: largest chunk 505.3 kB minified; `modelWeights.json` accounts for ~56 kB of it,
-  the rest is React and app code
+- Bundle: largest chunk 515.5 kB minified (162.7 kB gzipped); `modelWeights.json`
+  accounts for ~56 kB of it, the rest is React and app code
 - Schema guard raises (verified by inspection, not executed against a live project)
 
 **Not verified — needs a human:**
@@ -517,12 +517,127 @@ the entire run (intended, and the error message names the fix).
 
 ---
 
+## "Why is only the 9 showing?" (30 Sep 2026)
+
+The board was serving the 9 and a "shuttle not in operation" notice instead of shuttle
+departures, on a Wednesday, in term. Four separate things were in the console; only the
+first was the reported bug.
+
+### 1. The shuttle: a stale hardcoded term-date list
+
+`isShuttleOperating()` (`src/data/timetable.ts`) compares the date against
+`SHUTTLE_OPERATING_PERIODS`. The last entry ended **2026-05-22**, so from the start of
+the 2026/27 autumn term the check returned `false`, `DepartureBoard.tsx` skipped the
+shuttle entirely and rendered the notice. **Nothing anywhere reported an error** — no
+failed request, no console warning, no lint rule. The board just quietly rendered less.
+
+Added, from <https://semester-dates.ed.ac.uk/202627> (Semester 1 = 21 Sep – 21 Dec 2026,
+Semester 2 = 11 Jan – 22 May 2027):
+
+```ts
+{ start: "2026-09-21", end: "2026-12-21" },
+{ start: "2027-01-11", end: "2027-05-22" },
+```
+
+Notes on the dates, so the next person does not have to re-derive them:
+
+- The existing 2025/26 entry starts `2025-09-08`, which is **Welcome Week**, not the
+  Semester 1 start. The new entries use the official Semester 1 start instead, so the
+  list is now internally inconsistent about welcome week. Left that way deliberately:
+  the notice says "during semester time only", and today sits inside either choice.
+- **22 May 2027 is a Saturday**, so `isShuttleOperating` correctly returns `false` on
+  it. The last *weekday* of Semester 2 is Friday 21 May. This is a real gotcha when
+  writing date tests — an early test asserted `true` and was wrong, not the code.
+- 2027/28 is not yet published. There is a `TODO` in the source. **This will break again
+  at the start of the 2027/28 autumn term** unless the list is extended.
+
+### 2. A real bug next door: the date check mixed timezones
+
+`isShuttleOperating` used `date.getDay()` (local) for the weekend test but
+`date.toISOString().slice(0, 10)` (UTC) for the period test. Between **00:00 and 01:00
+London time** (UTC+1 under BST) the UTC date is still the previous day, so on the first
+day of any term the shuttle stayed hidden for that first hour, and the two halves of the
+same predicate disagreed with each other.
+
+Fixed by extracting the London helpers into **`src/lib/londonTime.ts`** and using them:
+
+- `londonDateKey(date)` — `yyyy-MM-dd` in Europe/London
+- `londonDayOfWeek(date)` — day of week in London, derived from that key so the weekday
+  and the date string **cannot** disagree with each other
+- `londonMinutes(iso)` — moved unchanged, plus `londonMinutesForDate(date)`
+
+`serviceId.ts` re-exports `londonDateKey`/`londonMinutes` so the two existing callers
+(`KioskView.tsx`, `attribution.ts`) are untouched. They had to move out because
+`serviceId.ts` imports `timetable.ts`, so `timetable.ts` importing back from
+`serviceId.ts` would have been an import cycle.
+
+> Trap: `tsc --noEmit` passed while `tsc -b` (which the build runs) failed with
+> `TS2304: Cannot find name 'londonDateKey'`. `export { x } from "./y"` does **not** put
+> `x` in local scope — `serviceId.ts` uses it internally and needed a real `import` too.
+
+### 3. corsproxy.io is dead; the live feed was removed
+
+`fetchLiveArrivals()` fetched bustimes.org through `corsproxy.io` every 60 s for both
+stops, and now returns **403** (401 with `?url=`). Every free alternative was checked
+and none is usable: bustimes.org sends no `access-control-allow-origin` so a direct
+browser fetch is blocked; allorigins fails DNS; codetabs 503s; cors.lol returned 200
+then 429; whateverorigin 400s; corsproxy.org 301s.
+
+The live feed only *enriched* the static 9 — it supplied `On Time` / `Delayed` and a
+revised time. It never supplied the departure list. So it was decoration on a feature
+that had silently stopped working, while costing **two failed requests per minute per
+visitor** plus a console full of warnings. **Removed** (`LiveArrival`,
+`fetchLiveArrivals`, both state hooks, the polling effect, the fuzzy-match block and
+every `expectedTime`/`isLive`/`expectedArrivalTime` assignment).
+
+Dead code deliberately left in place: the optional `isLive` / `expectedTime` /
+`expectedArrivalTime` fields on `Departure` and the `.status-on-time` /
+`.status-delayed` CSS are now unreachable. Reachable statuses are `Scheduled` and
+`Departing` only. Harmless, and it keeps the door open if the feed ever comes back
+properly — which would mean a **Supabase Edge Function** as a first-party proxy, not a
+public CORS proxy.
+
+### 4. Two things that were not ours
+
+- `contentscript.js:14083 MaxListenersExceededWarning` and
+  `ObjectMultiplex — orphaned data` / `app-init-liveness` / `background-liveness` are a
+  **browser extension** (MetaMask; `ObjectMultiplex` is from `@MetaMask/stream-json`).
+  Not in our bundle, not our bug.
+- `api.countapi.xyz` — `ERR_NAME_NOT_RESOLVED`. The free service is gone, so the footer
+  rendered a permanently blank "Visitors:". **Removed**, along with its state and CSS.
+
+### Verification
+
+`isShuttleOperating` checked across 13 boundary dates: term starts/ends, the day before
+and after, weekends inside the range, and the 00:30-London case that the timezone bug
+used to get wrong. All pass. The `.status-on-time` / `.status-delayed` classes were
+confirmed unreachable before being left alone.
+
+Rendered the component to static HTML to confirm the actual user-visible fix, since
+`isShuttleOperating` returning `true` alone does not prove cards appear:
+
+| date | operating | shuttle cards | bus 9 cards | notice |
+|---|---|---|---|---|
+| Wed 30 Sep 2026 (today) | true | **28** | 52 | not shown |
+| Wed 14 Oct 2026 | true | 28 | 52 | not shown |
+| Wed 19 Aug 2026 | false | 0 | 63 | shown |
+| Sat 19 Dec 2026 | false | 0 | 69 | shown |
+
+Bundle got ~2 kB smaller (543,435 → 541,466 bytes raw). The largest chunk is
+**515,488** bytes minified / 162,666 gzipped — see the optional todo below for what is
+actually in it.
+
+---
+
 ## Todos
 
 ### In progress
 - [ ] **Reload the board and confirm the loop is dead** — one GET + one OPTIONS, count
       flat. This is the single most important open item. Do it on the **deployed** URL
       rather than the dev server, so a stale bundle is ruled out entirely.
+- [ ] **Confirm on the deployed board that the shuttle is back** and that the console is
+      clear of corsproxy / countapi errors. The cause is fixed and verified locally, but
+      the user-facing check is still outstanding.
 
 ### Next up
 - [ ] Check **org → Usage** after a day to confirm request volume dropped and log
@@ -547,7 +662,16 @@ the entire run (intended, and the error message names the fix).
       `modelWeights.json` is only **~56 kB** of it (~11%) — the other ~449 kB is React and
       application code. So dropping the weights to a lazy fetch would shave a little; the
       bulk would need actual code-splitting.
-- [ ] Drop the `api.countapi.xyz` visitor counter in `App.tsx:68`.
+- [x] ~~Drop the `api.countapi.xyz` visitor counter in `App.tsx:68`.~~ — **done 30 Sep
+      2026.** The service was dead (`ERR_NAME_NOT_RESOLVED`), so the footer showed a
+      permanently blank "Visitors:". Fetch, state and markup removed.
+- [x] ~~Decide what to do about the dead corsproxy.io live feed~~ — **done 30 Sep 2026.**
+      Removed rather than replaced. If live arrivals are ever wanted again, do it with a
+      Supabase Edge Function; every public CORS proxy is unreliable or rate-limited.
+- [ ] **Add a 2027/28 entry to `SHUTTLE_OPERATING_PERIODS` when the dates are
+      published.** The list is hardcoded and fails silently. Without this, the shuttle
+      disappears again at the start of the 2027/28 autumn term. This is the recurring
+      failure mode, not a one-off.
 - [ ] Wire up a real test runner. `verify:identity` is CI-ready and could be the first one.
 - [ ] **`npm audit`: 10 vulnerabilities (2 low, 2 moderate, 6 high), all in `vite`
       7.0.0–7.3.3.** Path traversal, `server.fs.deny` bypass, and arbitrary file read
@@ -595,6 +719,9 @@ the entire run (intended, and the error message names the fix).
 | `src/lib/boardings.ts` | writes, reads, outbox, `verifyIngestToken`, row caps |
 | `src/lib/supabase.ts` | client cache, conditional `x-boarding-token` header |
 | `src/lib/attribution.ts` | tap → service, day filter, rollover |
+| `src/lib/londonTime.ts` | London date key / minutes / day-of-week. Extracted from `serviceId.ts` so `timetable.ts` can use them without a cycle |
+| `src/data/timetable.ts` | schedules, `SHUTTLE_OPERATING_PERIODS`, `isShuttleOperating` |
+| `src/lib/serviceId.ts` | per-bus service ids, service windows; re-exports the London helpers |
 | `src/lib/nfcReader.ts` | Web Serial framing, JSON parsing |
 | `src/components/ReaderPanel.tsx` | connection editor, token check, outbox controls |
 | `supabase/schema.sql` | tables, RLS, token function, publication, seed guard |
