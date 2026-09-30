@@ -163,9 +163,11 @@ const StopColumn: React.FC<StopProps> = ({
                     {dep.type}
                   </span>
                 </div>
+                {/* Pill first so it sits left of the indicator, matching DOM order for
+                    screen readers. Right-edge alignment is held by justify-content. */}
                 <div className="busyness-column">
-                  <BusynessIndicator level={dep.busyness} />
                   <LiveCountPill count={boardings[dep.serviceId] ?? 0} />
+                  <BusynessIndicator level={dep.busyness} />
                 </div>
 
                 <div className="destination-info">
