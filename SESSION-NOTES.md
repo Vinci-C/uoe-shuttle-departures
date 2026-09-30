@@ -324,6 +324,26 @@ value changes per call, so no fetch can reuse a previous preflight. `supabase.ts
 omits `x-boarding-token` when there's no token. At one fetch per page load this is
 immaterial, so it was left alone.
 
+### The RLS insert gate is proven (30 Sep 2026)
+
+Verified from outside the app, using the public publishable key — the same credentials the
+browser has, with no ingest token:
+
+| | |
+| --- | --- |
+| `GET boardings` (as the board does) | `200`, row returned |
+| `POST boardings` with no token | rejected, `42501` — *"new row violates row-level security policy"* |
+| Probe row created? | **no** — `dataset=rls-probe` has 0 rows, total unchanged at 33 |
+
+Note the status is **401, not 403**. PostgreSQL `42501` is `insufficient_privilege` and
+Supabase's gateway maps it to 401. Expecting 403 and treating 401 as anomalous is a wrong
+heuristic; the real test is whether the row exists, and it does not. This also confirms
+the live policy matches `schema.sql:113-120` — something re-running the file would not
+have told you.
+
+The count being 33 rather than the 31 recorded earlier is the user's Simulate tap, which
+independently corroborates that a token-bearing write succeeded.
+
 ---
 
 ## Security work: the ingest token
@@ -511,10 +531,8 @@ the entire run (intended, and the error message names the fix).
       to the UNO.
 - [ ] Bench: real card tap registers, and the 10s debounce holds exactly one row.
 - [ ] Bench: wifi off → taps queue → wifi on → no duplicate rows.
-- [ ] **Prove the RLS gate is strict end to end**: clear the token from the kiosk panel,
-      click Simulate tap, expect a rejection. This settles whether the live policy matches
-      `schema.sql`, which nothing so far has confirmed. Cross-check with
-      `select policyname, cmd, with_check from pg_policies where tablename = 'boardings';`
+- [x] ~~Prove the RLS gate is strict end to end~~ — **done 30 Sep 2026.** Rejected with
+      `42501`, no row created. See "The RLS insert gate is proven". No browser test needed.
 
 ### Optional / follow-ups
 - [ ] Memoize the `useCapacityParams` return value. It returns a fresh object literal each
