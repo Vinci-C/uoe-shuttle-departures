@@ -10,7 +10,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "verify:identity": "vite-node scripts/verify-connection-identity.ts"
+    "verify:identity": "vite-node --mode verify scripts/verify-connection-identity.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.58.0",

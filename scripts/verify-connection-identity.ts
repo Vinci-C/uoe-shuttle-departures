@@ -9,7 +9,28 @@
  *
  * Run with: npm run verify:identity
  */
-import { allConnections, envConnection, resolveFromPool } from "../src/config";
+import { allConnections, envConnection, resolveFromPool, saveConnection } from "../src/config";
+
+// Node has no localStorage, and every accessor in config.ts reaches for it. config.ts
+// only touches it inside function bodies, so assigning a stub here is enough -- the
+// static import above has already been evaluated by the time this runs.
+const store = new Map<string, string>();
+(globalThis as { localStorage?: Storage }).localStorage = {
+  get length() {
+    return store.size;
+  },
+  key: (index: number) => [...store.keys()][index] ?? null,
+  getItem: (key: string) => store.get(key) ?? null,
+  setItem: (key: string, value: string) => {
+    store.set(key, String(value));
+  },
+  removeItem: (key: string) => {
+    store.delete(key);
+  },
+  clear: () => {
+    store.clear();
+  },
+};
 
 const failures: string[] = [];
 
@@ -18,14 +39,32 @@ function check(label: string, pass: boolean, detail: string): void {
   if (!pass) failures.push(label);
 }
 
+// Seed one saved connection so the pool path below is exercised against real data
+// rather than an empty array.
+saveConnection({
+  id: "verify-fixture",
+  label: "Verify fixture",
+  url: "https://pool.invalid",
+  anonKey: "pool-only-not-a-real-key",
+});
+
 // The board calls envConnection() straight from the render body, so this is the
 // reference that matters most: it must not change between renders.
 const envA = envConnection();
 const envB = envConnection();
+
+// Checked separately, and first. If this ever fails the comparison below would
+// still "pass" on `null === null`, which is a green check that tests nothing.
+check(
+  "envConnection() is configured",
+  envA !== null,
+  envA === null ? "returned null -- the rest of this check would pass vacuously" : `label=${envA.label}`,
+);
+
 check(
   "envConnection() is stable",
-  envA === envB,
-  envA === null ? "(no connection configured)" : `label=${envA.label}`,
+  envA !== null && envA === envB,
+  envA === null ? "skipped: not configured" : `${envA === envB ? "same object across calls" : "NEW OBJECT EACH CALL"}`,
 );
 
 // The kiosk path goes through the pool. A memoised caller holds one pool reference
@@ -36,8 +75,8 @@ const pooledA = resolveFromPool(pool, id);
 const pooledB = resolveFromPool(pool, id);
 check(
   "resolveFromPool() is stable for a fixed pool",
-  pooledA === pooledB,
-  `pool size ${pool.length}`,
+  pooledA !== null && pooledA === pooledB,
+  `pool size ${pool.length}, id=${id}`,
 );
 
 // The trap the board fell into: reloading the pool per call is what makes the
