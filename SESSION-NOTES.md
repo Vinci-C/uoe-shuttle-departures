@@ -731,6 +731,67 @@ actually in it.
 
 ---
 
+## "Is the Lothian 9 timetable right?" (30 Sep 2026)
+
+The two `BUS_9_*` arrays disagreed badly between this repo and `../ai expo`, so I traced
+where each came from. Recording this because the answer is counter-intuitive and a
+future maintainer will be tempted to "fix" it back the other way.
+
+**What the disagreement looked like.** `BUS_9_TO_KB` had 50 entries here vs 52 in
+`ai expo`; only 3 departure times were common to both. Daytime runs were 1–2 min apart
+(indistinguishable on the board), but the evening pattern was materially different:
+
+```
+this repo : 19:56 20:26 20:58 21:28 21:58 22:28 22:58 23:28 23:58   (30-min headway)
+ai expo   : 20:00 20:20 20:39 21:00 21:30 22:00 22:27 22:57 23:26 23:56
+```
+
+`BUS_9_FROM_KB` had 52 entries in both but 24 times differed, almost all by 1–2 min.
+
+**Provenance.** `../ai expo` contains the official Lothian exports
+`lothian 9 to kb.xlsx` and `lothian 9 from kb.xlsx` (both dated 5 Mar 2026). Parsing the
+stop rows and matching them against both projects:
+
+| array | this repo (before) | `ai expo` |
+|---|---|---|
+| `BUS_9_TO_KB` departures | "Old Town, at Bristo Place" row, 50/51 | 11/46 best match |
+| `BUS_9_TO_KB` arrivals | "Mayfield, at Kings Buildings" row, **50/50** | 8/52 |
+| `BUS_9_FROM_KB` departures | "Mayfield, at Kings Buildings" row, **52/52 exact** | 28/52 |
+| `BUS_9_FROM_KB` arrivals | "South Side, at Bristo Square" row, **52/52** | 1/52 |
+
+So the pre-existing arrays were an exact transcription of the spreadsheets, and
+`ai expo`'s matched no source at all. The divergence was introduced by `ai expo` commit
+`2b12db8` "updated for 26/27 term" (28 Sep 2026), which rewrote 227 route-9 lines: it
+inserted a 06:58 service, nudged times ~1 min, and replaced the real 30-min evening tail
+with a ~20-min one. The later commit date is what initially made `ai expo` look newer and
+therefore authoritative — that inference was wrong.
+
+**Decision: `ai expo` is the source of truth for the 9.** Asked directly, the user
+confirmed what `ai expo` displays is correct. Both arrays are now copied from
+`ai expo` **byte-for-byte** (verified: both blocks compare identical to
+`../ai expo/src/data/timetable.ts`). Do not re-derive them from the xlsx.
+
+**Caveat, so the mismatch is not a future "bug".** The spreadsheets predate the change by
+six months, and the route's extent demonstrably shifted at some point — the Sept 2025
+`r9_250907.pdf` runs *Muirhouse* to King's Buildings while the Mar 2026 xlsx only covers
+*Granton* ↔ King's Buildings. A real timetable change since March is therefore entirely
+plausible, and the user is closer to the live source than the repo is. If someone later
+re-validates against the xlsx and it "fails", that is expected. Confirm with the user
+before changing anything.
+
+**Also fixed:** `displayTime: "1611"` (missing colon) on the old 16:11 entry rendered as
+`1611` on the card. The verbatim copy removes that entry, so the bug is gone — the board
+now shows `16:12` for the 16:12 departure, and all 104 route-9 entries have
+`displayTime === time`.
+
+**Verification:** both arrays byte-identical to `ai expo`; `displayTime` matches `time`
+104/104; times ascending; no duplicates; arrival after departure 104/104; journey
+durations 12–22 min. `lint`, `verify:identity`, `tsc -b` + `build`, `verify:bundle` all
+pass. Confirmed in the built chunk that the new evening times are present and the old
+`19:56 20:26 20:58 21:28 23:28 23:58` departures are gone.
+
+---
+
 ## Todos
 
 ### In progress
@@ -824,7 +885,7 @@ actually in it.
 | `src/lib/supabase.ts` | client cache, conditional `x-boarding-token` header |
 | `src/lib/attribution.ts` | tap → service, day filter, rollover |
 | `src/lib/londonTime.ts` | London date key / minutes / day-of-week. Extracted from `serviceId.ts` so `timetable.ts` can use them without a cycle |
-| `src/data/timetable.ts` | schedules, `SHUTTLE_OPERATING_PERIODS`, `isShuttleOperating`, `ACADEMIC_CALENDAR_2026_27`, `getTeachingWeek` |
+| `src/data/timetable.ts` | schedules, `SHUTTLE_OPERATING_PERIODS`, `isShuttleOperating`, `ACADEMIC_CALENDAR_2026_27`, `getTeachingWeek`. The two `BUS_9_*` arrays are copied verbatim from `../ai expo` — see the route-9 section above before touching them |
 | `src/lib/serviceId.ts` | per-bus service ids, service windows; re-exports the London helpers |
 | `src/lib/nfcReader.ts` | Web Serial framing, JSON parsing |
 | `src/components/ReaderPanel.tsx` | connection editor, token check, outbox controls |
