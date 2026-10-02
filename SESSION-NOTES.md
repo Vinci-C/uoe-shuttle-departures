@@ -808,9 +808,17 @@ pass. Confirmed in the built chunk that the new evening times are present and th
 ### Next up
 - [ ] Check **org → Usage** after a day to confirm request volume dropped and log
       ingestion has stopped climbing.
-- [ ] Install Arduino IDE + the Seeed NFC library, flash `card reader/BoothReader/BoothReader.ino`
-      to the UNO.
-- [ ] Bench: real card tap registers, and the 10s debounce holds exactly one row.
+- [x] ~~Install Arduino IDE + the Seeed NFC library, flash `card reader/BoothReader/BoothReader.ino`
+      to the UNO.~~ — **done 30 Sep 2026.** IDE 2.3.10, `arduino:avr` 1.8.8,
+      Seeed_Arduino_NFC 1.1.0. The board is a genuine UNO R3 on USB `2341:0043`
+      (signature `1E 95 0F`); `2341:0411` was a Realtek hub in the same tree. See
+      "Hardware bring-up, 30 Sep 2026".
+- [x] ~~Bench: real card tap registers, and the 10s debounce holds exactly one row.~~ —
+      **done 30 Sep 2026, but the debounce turned out to be the bug rather than the
+      behaviour under test.** Taps registered fine on first try. The 10s debounce counted a
+      card *left resting on the reader* again every 10 seconds — one 25s hold produced 3
+      rows. Replaced with a lift-based re-arm (1.5s clear); the same hold now produces 1
+      row and 32 `held` events. `verify:reader` replays the real capture.
 - [ ] Bench: wifi off → taps queue → wifi on → no duplicate rows.
 - [x] ~~Prove the RLS gate is strict end to end~~ — **done 30 Sep 2026.** Rejected with
       `42501`, no row created. See "The RLS insert gate is proven". No browser test needed.
@@ -821,8 +829,9 @@ pass. Confirmed in the built chunk that the new evening times are present and th
       callback and the `useMemo`s behind it are invalidated every render. Same
       anti-pattern, but only costs CPU — no fetch, no loop. Deliberately left alone as
       out of scope.
-- [ ] **Investigate the 505 kB main bundle.** Vite warns about it on every build. The
-      largest chunk is `useCapacityParams-<hash>.js` at 505 kB minified (the hash changes
+- [ ] **Investigate the 515.82 kB main bundle.** (was recorded as 505 kB; re-measured
+      2 Oct 2026, unchanged by the reader fix.) Vite warns about it on every build. The
+      largest chunk is `useCapacityParams-<hash>.js` at 515.82 kB minified (the hash changes
       per build). It contains React/ReactDOM plus all app code, so the chunk name is
       rollup's heuristic, not a hint that `useCapacityParams` is the culprit. The inlined
       `modelWeights.json` is only **~56 kB** of it (~11%) — the other ~449 kB is React and
@@ -841,7 +850,8 @@ pass. Confirmed in the built chunk that the new evening times are present and th
       recurring failure mode, not a one-off — see both incident sections above.
 - [ ] Wire up a real test runner. `verify:identity` is CI-ready and could be the first one.
 - [ ] **`npm audit`: 10 vulnerabilities (2 low, 2 moderate, 6 high), all in `vite`
-      7.0.0–7.3.3.** Path traversal, `server.fs.deny` bypass, and arbitrary file read
+      7.0.0–7.3.3** — re-verified 2 Oct 2026, count unchanged. Path traversal,
+      `server.fs.deny` bypass, and arbitrary file read
       via the dev server. These are **dev-server only** — the static GitHub Pages bundle
       is unaffected — but they matter if `npm run dev` is ever reachable from another
       machine on the network. Pre-existing, not caused by adding `vite-node`. `npm audit
@@ -1086,3 +1096,107 @@ it is a separate translation unit. Rather than patch a vendored third-party libr
 kiosk now ignores any line not beginning with `{`, silently. A line that does begin with
 `{` but fails to parse is still a real fault and is still reported.
 
+
+---
+
+## Remaining work (2 Oct 2026)
+
+A consolidated list, grouped by kind of work. The `## Todos` section above is kept as the
+historical record; where the two overlap, this section is the one to trust. Items that
+turned out to be done, or to be wrong, are collected under **Corrected** at the bottom
+rather than quietly deleted.
+
+### Site and infrastructure
+
+- **Pages serves the right HTML with missing assets; the site is intermittently blank.**
+  Two consecutive deploys (`cda9801` and `1bbe063`) both showed it. Measured on
+  `1bbe063`: for roughly four minutes all 7 hashed assets returned 404 while the HTML
+  itself returned 200, and seconds later the *previous* commit's `kiosk-DbrfW7Ky.css`
+  resolved again. The CI artifact is complete and correct, so this is platform/CDN-side
+  propagation, not a broken build. It self-heals, but a public demo will hit it.
+  Needs a direction: accept it, drop content hashes from filenames, or move hosting off
+  Pages. Do not deploy immediately before a demo.
+- **Add a post-deploy asset-resolution check to CI.** Would have caught the above within
+  seconds of the deploy finishing, instead of someone loading the site minutes later.
+- **Confirm one GET and one OPTIONS in the browser Network panel, on the deployed URL**
+  rather than the dev server, so a stale bundle is ruled out entirely. The corsproxy
+  request loop is fixed and verified locally; this user-facing check is still outstanding.
+- **Confirm on the deployed board that the shuttle is back**, and that the console is clear
+  of corsproxy / countapi errors.
+- **Check org → Usage** after a day to confirm request volume dropped and log ingestion
+  has stopped climbing.
+
+### Hardware and bench
+
+Two bench paths were implemented but never actually exercised. Both matter, because a
+demo is exactly when they will first be tried.
+
+- **Unplug / replug recovery.** The code handles the reader disconnecting and coming
+  back; never tested against real hardware.
+- **Wifi off → taps queue → wifi on → flush**, with no duplicate rows and `tapped_at`
+  preserved.
+- **Two distinct cards back to back → two distinct rows.** Partly observed (4 rows across
+  2 card ids), but never tested as a deliberate back-to-back double tap.
+- **Kings shuttle at 18:55 sits outside the model window.** Confirm whether that is
+  intended.
+- **Legacy uppercase `card_ids` and historical `bus9` rows** are still in the database.
+  Decide whether to clean them up or leave them for audit.
+- **Post-last-shuttle blank card, and non-operating days.** Deliberately kept as-is at the
+  user's request. Recorded here as a decision, not a defect, so it is not "fixed" by
+  accident later.
+
+### Security and privacy
+
+- **The card hash is brute-forceable.** FNV-1a is unsalted over a 32-bit Mifare UID, so
+  anyone holding the hash can recover the underlying UID by exhaustive search — a 4-billion
+  space, trivial to walk. This matters more than it first appears because **the repository
+  is public**, and cannot be private: GitHub Pages on the free plan cannot be served from a
+  private repository (see the exposure note earlier in this file). Anything committed here
+  is world-readable. Options: salt or pepper the hash via an env var, truncate it, or
+  accept the exposure and document it. The captures committed under
+  `card reader/transcripts/` were redacted to fixture IDs for exactly this reason; the
+  unredacted originals are kept locally and out of git.
+- **Confirm nothing else sensitive is committed.** The Supabase project ref lives in
+  gitignored `.env.local`, and the ingest token belongs only in the kiosk browser's
+  `localStorage`. Neither is in the repo, but a public repo makes this worth a deliberate
+  pass rather than an assumption.
+
+### Code hygiene
+
+- **`npm audit`: 10 vulnerabilities (2 low, 2 moderate, 6 high)**, all in `vite` 7.0.0–7.3.3.
+  Dev-server only; the static Pages bundle is unaffected. But it matters if `npm run dev`
+  is ever reachable from another machine on the network. `npm audit fix` will bump Vite
+  and may pull `vite-node` with it, so re-run `npm run build` and `verify:identity`
+  afterwards.
+- **Main bundle is 515.82 kB** (Vite warns on every build). Only ~56 kB of that is
+  `modelWeights.json`; the remaining ~449 kB is React and application code. Lazy-fetching
+  the weights buys little — real gains need actual code-splitting.
+- **Memoize the `useCapacityParams` return value.** It builds a fresh object literal every
+  render and sits in a `useCallback` dep array at `DepartureBoard.tsx:634`, invalidating
+  that callback and the `useMemo`s behind it every render. CPU only, no fetch, no loop.
+- **Wire up a real test runner.** `verify:identity` is CI-ready and could be the first one.
+
+### Data and dates
+
+- **2027/28 dates for `SHUTTLE_OPERATING_PERIODS` and `ACADEMIC_CALENDAR_2026_27`**, once
+  published. Both are hardcoded and both fail *silently*. The shuttle one already cost a
+  whole term; the calendar one made every prediction read "Plenty of seats" without
+  emitting a single error. A recurring failure mode, not a one-off.
+- **Publish the official 2027/28 shuttle and academic dates.** External dependency; this
+  is the blocker on the item above.
+
+### Corrected
+
+Where the older `## Todos` entries were wrong, done, or no longer open.
+
+- **Arduino install and flash — done 30 Sep 2026.** Not open.
+- **"The 10s debounce holds exactly one row" — done, and the premise was wrong.** The 10s
+  debounce was the bug. It counted a resting card again every 10 seconds. Replaced with a
+  lift-based re-arm.
+- **Repository visibility — resolved, not an open decision.** Pages on the free plan forces
+  the repo public. The board being public is a consequence of wanting a public board, not a
+  pending choice.
+- **Main bundle figure — 505 kB → 515.82 kB**, re-measured 2 Oct 2026. Unchanged by the
+  reader fix.
+- **`npm audit` — re-verified 2 Oct 2026**, count unchanged at 10. Still open, just
+  confirmed rather than assumed.
